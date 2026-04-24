@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SiteHeader } from "@/components/site-header";
 
 const steps = [
   {
@@ -49,25 +50,7 @@ function Wordmark() {
 export default function Home() {
   return (
     <>
-      <nav className="flex items-center justify-between border-b border-border px-6 py-4 md:px-12">
-        <Link
-          href="/"
-          className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <Wordmark />
-        </Link>
-        <div className="flex items-center gap-2 md:gap-4">
-          <Link
-            href="/signin"
-            className="rounded-md px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            Sign in
-          </Link>
-          <Button asChild variant="secondary" size="sm">
-            <Link href="/signup">Sign up</Link>
-          </Button>
-        </div>
-      </nav>
+      <SiteHeader />
 
       <main className="flex-1">
         <section className="px-6 py-20 md:px-12 md:py-32">
