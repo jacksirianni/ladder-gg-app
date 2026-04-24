@@ -1,65 +1,211 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+
+const steps = [
+  {
+    n: "01",
+    title: "Organizer sets up",
+    body: "Choose the game, team size, buy-in, and payout. Share an invite link with your captains.",
+  },
+  {
+    n: "02",
+    title: "Captains pay and compete",
+    body: "Teams register, pay their buy-in through Stripe, and play their matches on the auto-generated bracket.",
+  },
+  {
+    n: "03",
+    title: "Winners get paid",
+    body: "Report the result, the opponent confirms, and LADDER pays out the winning captain automatically.",
+  },
+];
+
+const audience = [
+  {
+    title: "Friend groups",
+    body: "Saturday tournaments, recurring ladders, side bets.",
+  },
+  {
+    title: "Discord communities",
+    body: "Weekly scrims, hype events, community cups.",
+  },
+  {
+    title: "Dorms and houses",
+    body: "House ladders for whatever game is on the TV.",
+  },
+  {
+    title: "Office crews",
+    body: "Lunch-break brackets with real stakes.",
+  },
+];
+
+function Wordmark() {
+  return (
+    <span className="font-mono text-sm font-semibold tracking-tight md:text-base">
+      LADDER<span className="text-primary">.gg</span>
+    </span>
+  );
+}
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <>
+      <nav className="flex items-center justify-between border-b border-border px-6 py-4 md:px-12">
+        <Link
+          href="/"
+          className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <Wordmark />
+        </Link>
+        <div className="flex items-center gap-2 md:gap-4">
+          <Link
+            href="/signin"
+            className="rounded-md px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Sign in
+          </Link>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/signup">Sign up</Link>
+          </Button>
         </div>
+      </nav>
+
+      <main className="flex-1">
+        <section className="px-6 py-20 md:px-12 md:py-32">
+          <div className="mx-auto max-w-5xl">
+            <span className="inline-block rounded-full border border-border bg-surface px-3 py-1 font-mono text-xs text-foreground-muted">
+              Skill-based · US-only · 18+
+            </span>
+            <h1 className="mt-6 text-4xl font-semibold leading-tight tracking-tight md:text-6xl">
+              Run your gaming league
+              <br />
+              <span className="text-primary">end-to-end.</span>
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg text-foreground-muted md:text-xl">
+              Bracket, buy-ins, match reporting, and payouts. All in one place,
+              for friend groups, Discord communities, dorms, and office crews.
+            </p>
+            <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg">
+                <Link href="/leagues/new">Create a league</Link>
+              </Button>
+              <Button asChild size="lg" variant="secondary">
+                <Link href="#how">See how it works</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="how"
+          className="border-t border-border px-6 py-20 md:px-12 md:py-24"
+        >
+          <div className="mx-auto max-w-5xl">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              How it works
+            </h2>
+            <p className="mt-4 max-w-2xl text-2xl font-semibold tracking-tight md:text-3xl">
+              One flow from league creation to payout. No Venmo, no spreadsheets, no screenshots.
+            </p>
+            <div className="mt-12 grid gap-4 md:grid-cols-3">
+              {steps.map((step) => (
+                <div
+                  key={step.n}
+                  className="rounded-lg border border-border bg-surface p-6"
+                >
+                  <span className="font-mono text-xs text-foreground-subtle">
+                    {step.n}
+                  </span>
+                  <h3 className="mt-4 text-lg font-semibold">{step.title}</h3>
+                  <p className="mt-2 text-sm text-foreground-muted">
+                    {step.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-border px-6 py-20 md:px-12 md:py-24">
+          <div className="mx-auto max-w-5xl">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              Built for your crew
+            </h2>
+            <p className="mt-4 max-w-2xl text-2xl font-semibold tracking-tight md:text-3xl">
+              Not pro esports infrastructure. A league tool for real people playing for real stakes.
+            </p>
+            <ul className="mt-12 grid gap-4 sm:grid-cols-2">
+              {audience.map((item) => (
+                <li
+                  key={item.title}
+                  className="flex items-start gap-3 rounded-lg border border-border bg-surface p-5"
+                >
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                  <div>
+                    <span className="font-medium">{item.title}</span>
+                    <p className="text-sm text-foreground-muted">{item.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section className="border-t border-border px-6 py-20 md:px-12 md:py-24">
+          <div className="mx-auto max-w-5xl">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              Pricing
+            </h2>
+            <p className="mt-4 text-3xl font-semibold leading-tight tracking-tight md:text-5xl">
+              <span className="text-success">90%</span> of every pot goes to the
+              winners.
+            </p>
+            <p className="mt-4 max-w-2xl text-lg text-foreground-muted">
+              LADDER takes a flat 10% rake on buy-ins. No organizer cut. No
+              hidden fees. No subscriptions.
+            </p>
+          </div>
+        </section>
+
+        <section className="border-t border-border px-6 py-20 md:px-12 md:py-24">
+          <div className="mx-auto max-w-5xl">
+            <p className="max-w-3xl text-2xl font-semibold tracking-tight md:text-4xl">
+              Ready to run your first league?
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg">
+                <Link href="/leagues/new">Create a league</Link>
+              </Button>
+              <Button asChild size="lg" variant="secondary">
+                <Link href="/signup">Create an account</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
       </main>
-    </div>
+
+      <footer className="border-t border-border px-6 py-10 md:px-12">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <Wordmark />
+            <span className="text-sm text-foreground-subtle">© 2026</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-foreground-muted">
+            <Link
+              href="/legal/terms"
+              className="rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Terms
+            </Link>
+            <Link
+              href="/legal/privacy"
+              className="rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Privacy
+            </Link>
+            <span className="text-foreground-subtle">US-only · 18+</span>
+          </div>
+        </div>
+      </footer>
+    </>
   );
 }
