@@ -8,16 +8,31 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
 
+const paymentLabel = {
+  PENDING: "Payment pending",
+  PAID: "Paid",
+  REFUNDED: "Refunded",
+} as const;
+
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/signin");
   }
 
-  const leagues = await prisma.league.findMany({
-    where: { organizerId: user.id },
-    orderBy: { createdAt: "desc" },
-  });
+  const [organized, captained] = await Promise.all([
+    prisma.league.findMany({
+      where: { organizerId: user.id },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.team.findMany({
+      where: { captainUserId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: { league: true },
+    }),
+  ]);
+
+  const hasAnything = organized.length > 0 || captained.length > 0;
 
   return (
     <>
@@ -29,7 +44,7 @@ export default async function DashboardPage() {
               Hi, {user.displayName}
             </h1>
             <p className="mt-2 text-foreground-muted">
-              Leagues you are organizing.
+              Leagues you are organizing or playing in.
             </p>
           </div>
           <Button asChild>
@@ -37,8 +52,8 @@ export default async function DashboardPage() {
           </Button>
         </header>
 
-        <section className="mt-10">
-          {leagues.length === 0 ? (
+        {!hasAnything ? (
+          <section className="mt-10">
             <EmptyState
               title="No leagues yet"
               description="Create your first league, or join one with an invite link from an organizer."
@@ -48,35 +63,78 @@ export default async function DashboardPage() {
                 </Button>
               }
             />
-          ) : (
-            <ul className="grid gap-4 md:grid-cols-2">
-              {leagues.map((league) => (
-                <li key={league.id}>
-                  <Link
-                    href={`/leagues/${league.slug}/manage`}
-                    className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  >
-                    <Card interactive>
-                      <div className="flex items-center justify-between gap-3">
-                        <LeagueStateBadge state={league.state} />
-                        <span className="font-mono text-xs text-foreground-subtle">
-                          {league.game}
-                        </span>
-                      </div>
-                      <h3 className="mt-4 text-lg font-semibold">
-                        {league.name}
-                      </h3>
-                      <p className="mt-1 text-sm text-foreground-muted">
-                        Buy-in ${(league.buyInCents / 100).toFixed(2)} · up to{" "}
-                        {league.maxTeams} teams
-                      </p>
-                    </Card>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+          </section>
+        ) : (
+          <>
+            {organized.length > 0 && (
+              <section className="mt-10">
+                <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                  Organizing
+                </h2>
+                <ul className="mt-4 grid gap-4 md:grid-cols-2">
+                  {organized.map((league) => (
+                    <li key={league.id}>
+                      <Link
+                        href={`/leagues/${league.slug}/manage`}
+                        className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      >
+                        <Card interactive>
+                          <div className="flex items-center justify-between gap-3">
+                            <LeagueStateBadge state={league.state} />
+                            <span className="font-mono text-xs text-foreground-subtle">
+                              {league.game}
+                            </span>
+                          </div>
+                          <h3 className="mt-4 text-lg font-semibold">
+                            {league.name}
+                          </h3>
+                          <p className="mt-1 text-sm text-foreground-muted">
+                            Buy-in ${(league.buyInCents / 100).toFixed(2)} · up to{" "}
+                            {league.maxTeams} teams
+                          </p>
+                        </Card>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {captained.length > 0 && (
+              <section className="mt-12">
+                <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                  Playing in
+                </h2>
+                <ul className="mt-4 grid gap-4 md:grid-cols-2">
+                  {captained.map((team) => (
+                    <li key={team.id}>
+                      <Link
+                        href={`/leagues/${team.league.slug}`}
+                        className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      >
+                        <Card interactive>
+                          <div className="flex items-center justify-between gap-3">
+                            <LeagueStateBadge state={team.league.state} />
+                            <span className="font-mono text-xs text-foreground-subtle">
+                              {paymentLabel[team.paymentStatus]}
+                            </span>
+                          </div>
+                          <h3 className="mt-4 text-lg font-semibold">
+                            {team.league.name}
+                          </h3>
+                          <p className="mt-1 text-sm text-foreground-muted">
+                            Captain of{" "}
+                            <span className="text-foreground">{team.name}</span>
+                          </p>
+                        </Card>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
+        )}
       </main>
     </>
   );

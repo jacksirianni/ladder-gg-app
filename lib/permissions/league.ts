@@ -31,3 +31,18 @@ export async function requireLeagueOrganizerBySlug(
   }
   return league;
 }
+
+export async function requireLeagueCaptain(leagueId: string, userId: string) {
+  const team = await prisma.team.findUnique({
+    where: {
+      leagueId_captainUserId: {
+        leagueId,
+        captainUserId: userId,
+      },
+    },
+  });
+  if (!team) {
+    throw new Error("You are not a captain in this league.");
+  }
+  return team;
+}

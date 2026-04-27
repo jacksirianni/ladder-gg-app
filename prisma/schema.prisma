@@ -22,6 +22,12 @@ enum PayoutPreset {
   TOP_3
 }
 
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
 model User {
   id                       String    @id @default(cuid())
   email                    String    @unique
@@ -33,6 +39,7 @@ model User {
   accounts                 Account[]
   sessions                 Session[]
   organizedLeagues         League[]
+  captainedTeams           Team[]
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 }
@@ -94,7 +101,40 @@ model League {
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
-  organizer User @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  organizer User   @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  teams     Team[]
 
   @@index([organizerId])
+}
+
+model Team {
+  id             String        @id @default(cuid())
+  leagueId       String
+  name           String
+  captainUserId  String
+  paymentStatus  PaymentStatus @default(PENDING)
+  finalPlacement Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  league  League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  captain User              @relation(fields: [captainUserId], references: [id], onDelete: Restrict)
+  roster  TeamRosterEntry[]
+
+  @@unique([leagueId, captainUserId])
+  @@index([leagueId])
+  @@index([captainUserId])
+}
+
+model TeamRosterEntry {
+  id          String   @id @default(cuid())
+  teamId      String
+  displayName String
+  position    Int
+  createdAt   DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, position])
+  @@index([teamId])
 }
