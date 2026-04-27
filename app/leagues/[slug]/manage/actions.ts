@@ -10,6 +10,7 @@ import {
   canPublishLeague,
 } from "@/lib/transitions/league";
 import { generateBracketMatches } from "@/lib/bracket/generate";
+import { resolveDisputeSchema } from "@/lib/validators/match";
 
 const VALID_PAYMENT_STATUSES = new Set<PaymentStatus>([
   "PENDING",
@@ -144,5 +145,111 @@ export async function startLeagueAction(formData: FormData) {
 
   revalidatePath(`/leagues/${league.slug}/manage`);
   revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath("/dashboard");
+}
+
+export async function resolveDisputeAction(formData: FormData) {
+  const user = await requireAuth();
+
+  const parsed = resolveDisputeSchema.safeParse({
+    matchId: String(formData.get("matchId") ?? ""),
+    winnerTeamId: String(formData.get("winnerTeamId") ?? ""),
+  });
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid dispute resolution.",
+    );
+  }
+
+  const { matchId, winnerTeamId } = parsed.data;
+
+  const slug = await prisma.$transaction(async (tx) => {
+    const match = await tx.match.findUnique({
+      where: { id: matchId },
+      include: {
+        league: { select: { id: true, slug: true, organizerId: true } },
+        teamA: { select: { id: true } },
+        teamB: { select: { id: true } },
+      },
+    });
+    if (!match) throw new Error("Match not found.");
+    if (match.league.organizerId !== user.id) {
+      throw new Error("Only the organizer can resolve a dispute.");
+    }
+    if (match.status !== "DISPUTED") {
+      throw new Error("Only disputed matches can be resolved.");
+    }
+    if (!match.teamA || !match.teamB) {
+      throw new Error("Both teams must be set.");
+    }
+    if (winnerTeamId !== match.teamA.id && winnerTeamId !== match.teamB.id) {
+      throw new Error("Winner must be one of the two teams in this match.");
+    }
+
+    // Mark match ORGANIZER_DECIDED.
+    await tx.match.update({
+      where: { id: match.id },
+      data: {
+        status: "ORGANIZER_DECIDED",
+        winnerTeamId,
+        confirmedAt: new Date(),
+        resolvedByUserId: user.id,
+      },
+    });
+
+    // Advance winner — same logic as confirmMatchAction.
+    const nextRound = match.round + 1;
+    const nextPosition = Math.ceil(match.bracketPosition / 2);
+
+    const nextMatch = await tx.match.findUnique({
+      where: {
+        leagueId_round_bracketPosition: {
+          leagueId: match.leagueId,
+          round: nextRound,
+          bracketPosition: nextPosition,
+        },
+      },
+    });
+
+    if (!nextMatch) {
+      // Final — complete league.
+      await tx.league.update({
+        where: { id: match.leagueId },
+        data: {
+          state: "COMPLETED",
+          completedAt: new Date(),
+        },
+      });
+      return match.league.slug;
+    }
+
+    const isTeamASlot = match.bracketPosition % 2 === 1;
+    const updateData: {
+      teamAId?: string;
+      teamBId?: string;
+      status?: "AWAITING_REPORT";
+    } = {};
+    if (isTeamASlot) {
+      updateData.teamAId = winnerTeamId;
+    } else {
+      updateData.teamBId = winnerTeamId;
+    }
+
+    const futureTeamA = isTeamASlot ? winnerTeamId : nextMatch.teamAId;
+    const futureTeamB = isTeamASlot ? nextMatch.teamBId : winnerTeamId;
+    if (futureTeamA && futureTeamB) {
+      updateData.status = "AWAITING_REPORT";
+    }
+
+    await tx.match.update({
+      where: { id: nextMatch.id },
+      data: updateData,
+    });
+
+    return match.league.slug;
+  });
+
+  revalidatePath(`/leagues/${slug}`);
+  revalidatePath(`/leagues/${slug}/manage`);
   revalidatePath("/dashboard");
 }

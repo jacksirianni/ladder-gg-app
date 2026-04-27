@@ -12,3 +12,10 @@ export const submitMatchReportSchema = z.object({
 });
 
 export type SubmitMatchReportInput = z.infer<typeof submitMatchReportSchema>;
+
+export const resolveDisputeSchema = z.object({
+  matchId: z.string().min(1, "Match id required."),
+  winnerTeamId: z.string().min(1, "Pick a winner."),
+});
+
+export type ResolveDisputeInput = z.infer<typeof resolveDisputeSchema>;

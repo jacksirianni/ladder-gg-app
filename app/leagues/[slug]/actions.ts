@@ -192,3 +192,54 @@ export async function confirmMatchAction(
   revalidatePath("/dashboard");
   return {};
 }
+
+export async function disputeMatchAction(
+  _prev: MatchActionState,
+  formData: FormData,
+): Promise<MatchActionState> {
+  const user = await requireAuth();
+  const matchId = String(formData.get("matchId") ?? "");
+  if (!matchId) return { error: "Match id required." };
+
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    include: {
+      league: { select: { slug: true } },
+      teamA: { select: { id: true, captainUserId: true } },
+      teamB: { select: { id: true, captainUserId: true } },
+      reports: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+  if (!match) return { error: "Match not found." };
+  if (match.status !== "AWAITING_CONFIRM") {
+    return { error: "Only matches awaiting confirmation can be disputed." };
+  }
+  if (!match.teamA || !match.teamB) {
+    return { error: "Both teams must be set." };
+  }
+
+  const latestReport = match.reports[0];
+  if (!latestReport) return { error: "No report to dispute." };
+
+  const isCaptainInMatch =
+    user.id === match.teamA.captainUserId ||
+    user.id === match.teamB.captainUserId;
+  if (!isCaptainInMatch) {
+    return { error: "Only captains in this match can dispute." };
+  }
+  if (user.id === latestReport.reportedByUserId) {
+    return { error: "The captain who reported cannot dispute their own report." };
+  }
+
+  await prisma.match.update({
+    where: { id: match.id },
+    data: { status: "DISPUTED" },
+  });
+
+  revalidatePath(`/leagues/${match.league.slug}`);
+  revalidatePath(`/leagues/${match.league.slug}/manage`);
+  return {};
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState } from "react";
 import type { MatchStatus } from "@prisma/client";
 import {
   Dialog,
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
   confirmMatchAction,
+  disputeMatchAction,
   submitMatchReportAction,
   type MatchActionState,
 } from "@/app/leagues/[slug]/actions";
@@ -45,7 +46,6 @@ const initialState: MatchActionState = {};
 export function MatchActionModal({ match, viewerId, onClose }: Props) {
   const open = match !== null;
 
-  // Hooks must run unconditionally — drive these by `open` instead of by `match`.
   const [reportState, reportAction, reportPending] = useActionState(
     submitMatchReportAction,
     initialState,
@@ -54,21 +54,10 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
     confirmMatchAction,
     initialState,
   );
-
-  // Close the modal once an action returns successfully (no error / no fieldErrors).
-  useEffect(() => {
-    if (!open) return;
-    if (
-      reportState &&
-      !reportState.error &&
-      !reportState.fieldErrors &&
-      reportPending === false
-    ) {
-      // The action returned cleanly. We don't auto-close on initial empty state,
-      // so we differentiate by checking if the action ever resolved during this open.
-      // Simplest heuristic: do nothing; user can close manually after revalidation.
-    }
-  }, [open, reportState, reportPending]);
+  const [disputeState, disputeAction, disputePending] = useActionState(
+    disputeMatchAction,
+    initialState,
+  );
 
   if (!match) {
     return (
@@ -93,6 +82,13 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
     latestReport?.reportedWinnerTeamId === match.teamA?.id
       ? teamAName
       : latestReport?.reportedWinnerTeamId === match.teamB?.id
+        ? teamBName
+        : null;
+
+  const finalWinnerName =
+    match.winnerTeamId === match.teamA?.id
+      ? teamAName
+      : match.winnerTeamId === match.teamB?.id
         ? teamBName
         : null;
 
@@ -166,8 +162,7 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
       )}
 
       {match.status === "AWAITING_CONFIRM" && isCaptainInMatch && !isReporter && (
-        <form action={confirmAction} className="mt-6 flex flex-col gap-4">
-          <input type="hidden" name="matchId" value={match.id} />
+        <div className="mt-6 flex flex-col gap-4">
           <div className="rounded-md border border-border bg-surface px-4 py-3 text-sm">
             <p className="font-medium">Reported result</p>
             <p className="mt-1 text-foreground-muted">
@@ -182,22 +177,39 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
               .
             </p>
           </div>
-          {confirmState.error && (
-            <p className="text-sm text-destructive">{confirmState.error}</p>
+          {(confirmState.error || disputeState.error) && (
+            <p className="text-sm text-destructive">
+              {confirmState.error ?? disputeState.error}
+            </p>
           )}
           <p className="text-xs text-foreground-subtle">
-            Disputes will be available in a future update. For now, only confirm
-            if the result above is correct.
+            Dispute only if the result above is wrong. The organizer will
+            decide the winner.
           </p>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={confirmPending}>
-              {confirmPending ? "Confirming…" : "Confirm result"}
-            </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <form action={disputeAction}>
+              <input type="hidden" name="matchId" value={match.id} />
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={disputePending}
+                className="w-full sm:w-auto"
+              >
+                {disputePending ? "Disputing…" : "Dispute"}
+              </Button>
+            </form>
+            <form action={confirmAction}>
+              <input type="hidden" name="matchId" value={match.id} />
+              <Button
+                type="submit"
+                disabled={confirmPending}
+                className="w-full sm:w-auto"
+              >
+                {confirmPending ? "Confirming…" : "Confirm result"}
+              </Button>
+            </form>
           </div>
-        </form>
+        </div>
       )}
 
       {match.status === "AWAITING_CONFIRM" && isReporter && (
@@ -221,16 +233,46 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
         </div>
       )}
 
+      {match.status === "DISPUTED" && (
+        <div className="mt-6 flex flex-col gap-3">
+          <div className="rounded-md border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
+            <p className="font-medium text-warning">Disputed</p>
+            <p className="mt-1 text-foreground-muted">
+              The reported result is contested. The organizer will declare a
+              winner.
+            </p>
+          </div>
+          {latestReport && reportedWinnerName && (
+            <p className="text-sm text-foreground-muted">
+              Report on file:{" "}
+              <span className="text-foreground">{reportedWinnerName}</span> won
+              {latestReport.scoreText && (
+                <>
+                  {" "}
+                  <span className="font-mono">({latestReport.scoreText})</span>
+                </>
+              )}
+              .
+            </p>
+          )}
+        </div>
+      )}
+
       {(match.status === "CONFIRMED" ||
         match.status === "ORGANIZER_DECIDED") && (
         <div className="mt-6 text-sm">
           <p className="font-medium text-success">
-            {reportedWinnerName ?? (match.winnerTeamId === match.teamA?.id ? teamAName : teamBName)} won
-            {latestReport?.scoreText && (
+            {finalWinnerName ?? reportedWinnerName ?? "?"} won
+            {latestReport?.scoreText && match.status === "CONFIRMED" && (
               <>
                 {" "}
                 <span className="font-mono">({latestReport.scoreText})</span>
               </>
+            )}
+            {match.status === "ORGANIZER_DECIDED" && (
+              <span className="ml-2 font-normal text-foreground-subtle">
+                (resolved by organizer)
+              </span>
             )}
             .
           </p>

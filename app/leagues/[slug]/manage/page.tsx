@@ -18,6 +18,7 @@ import {
 import {
   cancelLeagueAction,
   publishLeagueAction,
+  resolveDisputeAction,
   startLeagueAction,
   updateTeamPaymentStatusAction,
 } from "./actions";
@@ -70,6 +71,23 @@ export default async function ManageLeaguePage({ params }: Props) {
   });
   if (!league) notFound();
   if (league.organizerId !== session.user.id) notFound();
+
+  const disputedMatches = await prisma.match.findMany({
+    where: { leagueId: league.id, status: "DISPUTED" },
+    orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
+    include: {
+      teamA: { select: { id: true, name: true } },
+      teamB: { select: { id: true, name: true } },
+      reports: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: {
+          reportedBy: { select: { displayName: true } },
+          reportedWinnerTeam: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
 
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
@@ -248,6 +266,93 @@ export default async function ManageLeaguePage({ params }: Props) {
             </ul>
           )}
         </section>
+
+        {disputedMatches.length > 0 && (
+          <section className="mt-10">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-destructive">
+              Disputes ({disputedMatches.length})
+            </h2>
+            <p className="mt-2 text-sm text-foreground-muted">
+              The captains disagreed on a result. Declare the winner to advance the bracket.
+            </p>
+            <ul className="mt-4 flex flex-col gap-3">
+              {disputedMatches.map((match) => {
+                const report = match.reports[0];
+                return (
+                  <li
+                    key={match.id}
+                    className="rounded-lg border border-destructive/40 bg-destructive/5 p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="font-mono text-xs text-foreground-subtle">
+                        R{match.round} · M{match.bracketPosition}
+                      </span>
+                      <Badge variant="destructive">Disputed</Badge>
+                    </div>
+                    <p className="mt-2 text-sm">
+                      <span className="font-medium">
+                        {match.teamA?.name ?? "TBD"}
+                      </span>
+                      <span className="px-2 text-foreground-subtle">vs</span>
+                      <span className="font-medium">
+                        {match.teamB?.name ?? "TBD"}
+                      </span>
+                    </p>
+                    {report && (
+                      <p className="mt-1 text-sm text-foreground-muted">
+                        Reported by{" "}
+                        <span className="text-foreground">
+                          {report.reportedBy.displayName}
+                        </span>
+                        :{" "}
+                        <span className="text-foreground">
+                          {report.reportedWinnerTeam.name}
+                        </span>{" "}
+                        won
+                        {report.scoreText && (
+                          <>
+                            {" "}
+                            <span className="font-mono">({report.scoreText})</span>
+                          </>
+                        )}
+                      </p>
+                    )}
+                    <form
+                      action={resolveDisputeAction}
+                      className="mt-4 flex flex-wrap items-center gap-2"
+                    >
+                      <input type="hidden" name="matchId" value={match.id} />
+                      <Select
+                        name="winnerTeamId"
+                        required
+                        defaultValue=""
+                        aria-label={`Declare winner for match R${match.round} M${match.bracketPosition}`}
+                        className="w-auto"
+                      >
+                        <option value="" disabled>
+                          Declare winner
+                        </option>
+                        {match.teamA && (
+                          <option value={match.teamA.id}>
+                            {match.teamA.name}
+                          </option>
+                        )}
+                        {match.teamB && (
+                          <option value={match.teamB.id}>
+                            {match.teamB.name}
+                          </option>
+                        )}
+                      </Select>
+                      <Button type="submit" size="sm">
+                        Resolve
+                      </Button>
+                    </form>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
 
         <section className="mt-10 flex flex-wrap gap-3 border-t border-border pt-8">
           {canPublishLeague(league) && (
