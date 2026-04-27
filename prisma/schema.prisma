@@ -29,20 +29,31 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum MatchStatus {
+  PENDING
+  AWAITING_REPORT
+  AWAITING_CONFIRM
+  CONFIRMED
+  DISPUTED
+  ORGANIZER_DECIDED
+}
+
 model User {
-  id                       String    @id @default(cuid())
-  email                    String    @unique
+  id                       String        @id @default(cuid())
+  email                    String        @unique
   emailVerified            DateTime?
   passwordHash             String
   displayName              String
-  ageConfirmed             Boolean   @default(false)
+  ageConfirmed             Boolean       @default(false)
   stripeConnectedAccountId String?
   accounts                 Account[]
   sessions                 Session[]
   organizedLeagues         League[]
   captainedTeams           Team[]
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  matchReports             MatchReport[] @relation("MatchReportReporter")
+  matchesResolved          Match[]       @relation("MatchResolver")
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
 }
 
 model Account {
@@ -104,8 +115,9 @@ model League {
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
-  organizer User   @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  organizer User    @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   teams     Team[]
+  matches   Match[]
 
   @@index([organizerId])
 }
@@ -120,9 +132,13 @@ model Team {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  league  League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  captain User              @relation(fields: [captainUserId], references: [id], onDelete: Restrict)
-  roster  TeamRosterEntry[]
+  league               League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  captain              User              @relation(fields: [captainUserId], references: [id], onDelete: Restrict)
+  roster               TeamRosterEntry[]
+  matchesAsTeamA       Match[]           @relation("MatchTeamA")
+  matchesAsTeamB       Match[]           @relation("MatchTeamB")
+  matchesWon           Match[]           @relation("MatchWinner")
+  matchReportsAsWinner MatchReport[]     @relation("MatchReportWinner")
 
   @@unique([leagueId, captainUserId])
   @@index([leagueId])
@@ -140,4 +156,44 @@ model TeamRosterEntry {
 
   @@unique([teamId, position])
   @@index([teamId])
+}
+
+model Match {
+  id               String      @id @default(cuid())
+  leagueId         String
+  round            Int
+  bracketPosition  Int
+  teamAId          String?
+  teamBId          String?
+  winnerTeamId     String?
+  status           MatchStatus @default(PENDING)
+  confirmedAt      DateTime?
+  resolvedByUserId String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  league     League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  teamA      Team?         @relation("MatchTeamA", fields: [teamAId], references: [id], onDelete: SetNull)
+  teamB      Team?         @relation("MatchTeamB", fields: [teamBId], references: [id], onDelete: SetNull)
+  winner     Team?         @relation("MatchWinner", fields: [winnerTeamId], references: [id], onDelete: SetNull)
+  resolvedBy User?         @relation("MatchResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  reports    MatchReport[]
+
+  @@unique([leagueId, round, bracketPosition])
+  @@index([leagueId])
+}
+
+model MatchReport {
+  id                   String   @id @default(cuid())
+  matchId              String
+  reportedByUserId     String
+  reportedWinnerTeamId String
+  scoreText            String?
+  createdAt            DateTime @default(now())
+
+  match              Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  reportedBy         User  @relation("MatchReportReporter", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  reportedWinnerTeam Team  @relation("MatchReportWinner", fields: [reportedWinnerTeamId], references: [id], onDelete: Restrict)
+
+  @@index([matchId])
 }

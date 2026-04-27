@@ -9,9 +9,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { BracketView } from "@/components/bracket-view";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
+import { MatchesTab } from "./matches-tab";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -37,6 +39,26 @@ export default async function PublicLeaguePage({ params }: Props) {
           roster: { orderBy: { position: "asc" } },
         },
       },
+      matches: {
+        orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
+        include: {
+          teamA: {
+            select: { id: true, name: true, captainUserId: true },
+          },
+          teamB: {
+            select: { id: true, name: true, captainUserId: true },
+          },
+          reports: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              reportedByUserId: true,
+              reportedWinnerTeamId: true,
+              scoreText: true,
+            },
+          },
+        },
+      },
     },
   });
   if (!league || league.state === "DRAFT") notFound();
@@ -45,10 +67,25 @@ export default async function PublicLeaguePage({ params }: Props) {
   const viewerId = session?.user?.id ?? null;
   const isOrganizer = viewerId === league.organizerId;
 
+  // Find league winner if completed.
+  const finalMatch =
+    league.matches.length > 0
+      ? league.matches.reduce((acc, m) =>
+          m.round > acc.round ? m : acc,
+        league.matches[0])
+      : null;
+  const winnerTeam =
+    league.state === "COMPLETED" && finalMatch?.winnerTeamId
+      ? league.teams.find((t) => t.id === finalMatch.winnerTeamId) ?? null
+      : null;
+
+  const showBracket =
+    league.state === "IN_PROGRESS" || league.state === "COMPLETED";
+
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 md:px-12">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 md:px-12">
         <div className="flex flex-wrap items-center gap-3">
           <LeagueStateBadge state={league.state} />
           <span className="font-mono text-xs text-foreground-subtle">
@@ -65,12 +102,29 @@ export default async function PublicLeaguePage({ params }: Props) {
           Organized by {league.organizer.displayName}
         </p>
 
+        {winnerTeam && (
+          <div className="mt-6 rounded-lg border border-success/40 bg-success/5 px-5 py-4">
+            <p className="font-mono text-xs uppercase tracking-widest text-success">
+              Winner
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-success">
+              {winnerTeam.name}
+            </p>
+            <p className="mt-1 text-sm text-foreground-muted">
+              Captained by {winnerTeam.captain.displayName}
+            </p>
+          </div>
+        )}
+
         <div className="mt-10">
           <Tabs defaultValue="overview">
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="teams">
                 Teams ({league.teams.length})
+              </TabsTrigger>
+              <TabsTrigger value="matches">
+                Matches ({league.matches.length})
               </TabsTrigger>
             </TabsList>
 
@@ -134,12 +188,24 @@ export default async function PublicLeaguePage({ params }: Props) {
               )}
 
               <p className="mt-8 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-xs text-foreground-subtle">
-                Entry fees and prizes are managed by the organizer off-platform. LADDER tracks teams, brackets, and results.
+                Entry fees and prizes are managed by the organizer off-platform.
+                LADDER tracks teams, brackets, and results.
               </p>
 
-              <p className="mt-4 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-sm text-foreground-muted">
-                Bracket appears once the organizer starts the league.
-              </p>
+              {showBracket ? (
+                <div className="mt-8">
+                  <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Bracket
+                  </h2>
+                  <div className="mt-4">
+                    <BracketView matches={league.matches} />
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-sm text-foreground-muted">
+                  Bracket appears once the organizer starts the league.
+                </p>
+              )}
             </TabsContent>
 
             <TabsContent value="teams" className="mt-6">
@@ -165,6 +231,10 @@ export default async function PublicLeaguePage({ params }: Props) {
                   })}
                 </ul>
               )}
+            </TabsContent>
+
+            <TabsContent value="matches" className="mt-6">
+              <MatchesTab matches={league.matches} viewerId={viewerId} />
             </TabsContent>
           </Tabs>
         </div>

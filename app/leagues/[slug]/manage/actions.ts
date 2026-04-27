@@ -9,6 +9,7 @@ import {
   canCancelLeague,
   canPublishLeague,
 } from "@/lib/transitions/league";
+import { generateBracketMatches } from "@/lib/bracket/generate";
 
 const VALID_PAYMENT_STATUSES = new Set<PaymentStatus>([
   "PENDING",
@@ -92,5 +93,56 @@ export async function updateTeamPaymentStatusAction(formData: FormData) {
 
   revalidatePath(`/leagues/${team.league.slug}/manage`);
   revalidatePath(`/leagues/${team.league.slug}`);
+  revalidatePath("/dashboard");
+}
+
+export async function startLeagueAction(formData: FormData) {
+  const user = await requireAuth();
+  const leagueId = String(formData.get("leagueId") ?? "");
+
+  const league = await requireLeagueOrganizer(leagueId, user.id);
+  if (league.state !== "OPEN") {
+    throw new Error("League must be OPEN to start.");
+  }
+
+  const eligibleTeams = await prisma.team.findMany({
+    where: {
+      leagueId: league.id,
+      paymentStatus: { in: ["PAID", "WAIVED"] },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+
+  if (eligibleTeams.length < 2) {
+    throw new Error("Need at least 2 teams marked PAID or WAIVED to start.");
+  }
+
+  const bracketMatches = generateBracketMatches(
+    eligibleTeams.map((t) => t.id),
+  );
+
+  await prisma.$transaction([
+    prisma.match.createMany({
+      data: bracketMatches.map((m) => ({
+        leagueId: league.id,
+        round: m.round,
+        bracketPosition: m.bracketPosition,
+        teamAId: m.teamAId,
+        teamBId: m.teamBId,
+        status: m.teamAId && m.teamBId ? "AWAITING_REPORT" : "PENDING",
+      })),
+    }),
+    prisma.league.update({
+      where: { id: league.id },
+      data: {
+        state: "IN_PROGRESS",
+        startedAt: new Date(),
+      },
+    }),
+  ]);
+
+  revalidatePath(`/leagues/${league.slug}/manage`);
+  revalidatePath(`/leagues/${league.slug}`);
   revalidatePath("/dashboard");
 }

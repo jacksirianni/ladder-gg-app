@@ -18,6 +18,7 @@ import {
 import {
   cancelLeagueAction,
   publishLeagueAction,
+  startLeagueAction,
   updateTeamPaymentStatusAction,
 } from "./actions";
 
@@ -31,7 +32,10 @@ const payoutLabels: Record<string, string> = {
   TOP_3: "Top 3 — 60 / 30 / 10",
 };
 
-const paymentVariant: Record<PaymentStatus, "neutral" | "success" | "info" | "warning"> = {
+const paymentVariant: Record<
+  PaymentStatus,
+  "neutral" | "success" | "info" | "warning"
+> = {
   PENDING: "neutral",
   PAID: "success",
   WAIVED: "info",
@@ -72,8 +76,15 @@ export default async function ManageLeaguePage({ params }: Props) {
   const proto = h.get("x-forwarded-proto") ?? "http";
   const inviteUrl = `${proto}://${host}/leagues/${league.slug}/join?token=${league.inviteToken}`;
 
-  const paidTeams = league.teams.filter((t) => t.paymentStatus === "PAID").length;
+  const paidTeams = league.teams.filter(
+    (t) => t.paymentStatus === "PAID",
+  ).length;
   const totalCollectedCents = paidTeams * league.buyInCents;
+
+  const eligibleCount = league.teams.filter(
+    (t) => t.paymentStatus === "PAID" || t.paymentStatus === "WAIVED",
+  ).length;
+  const canStart = league.state === "OPEN" && eligibleCount >= 2;
 
   return (
     <>
@@ -175,6 +186,14 @@ export default async function ManageLeaguePage({ params }: Props) {
                 </span>
               </>
             )}
+            {league.state === "OPEN" && (
+              <>
+                {" · "}
+                <span className="text-foreground">
+                  {eligibleCount} eligible to play
+                </span>
+              </>
+            )}
           </p>
 
           {league.teams.length === 0 ? (
@@ -202,26 +221,28 @@ export default async function ManageLeaguePage({ params }: Props) {
                       </span>
                     </p>
                   </div>
-                  <form
-                    action={updateTeamPaymentStatusAction}
-                    className="flex flex-wrap items-center gap-2"
-                  >
-                    <input type="hidden" name="teamId" value={team.id} />
-                    <Select
-                      name="paymentStatus"
-                      defaultValue={team.paymentStatus}
-                      className="w-auto"
-                      aria-label={`Payment status for ${team.name}`}
+                  {league.state === "OPEN" && (
+                    <form
+                      action={updateTeamPaymentStatusAction}
+                      className="flex flex-wrap items-center gap-2"
                     >
-                      <option value="PENDING">Pending</option>
-                      <option value="PAID">Paid</option>
-                      <option value="WAIVED">Waived</option>
-                      <option value="REFUNDED">Refunded</option>
-                    </Select>
-                    <Button type="submit" size="sm" variant="secondary">
-                      Update
-                    </Button>
-                  </form>
+                      <input type="hidden" name="teamId" value={team.id} />
+                      <Select
+                        name="paymentStatus"
+                        defaultValue={team.paymentStatus}
+                        className="w-auto"
+                        aria-label={`Payment status for ${team.name}`}
+                      >
+                        <option value="PENDING">Pending</option>
+                        <option value="PAID">Paid</option>
+                        <option value="WAIVED">Waived</option>
+                        <option value="REFUNDED">Refunded</option>
+                      </Select>
+                      <Button type="submit" size="sm" variant="secondary">
+                        Update
+                      </Button>
+                    </form>
+                  )}
                 </li>
               ))}
             </ul>
@@ -234,6 +255,20 @@ export default async function ManageLeaguePage({ params }: Props) {
               <input type="hidden" name="leagueId" value={league.id} />
               <Button type="submit">Publish league</Button>
             </form>
+          )}
+          {canStart && (
+            <form action={startLeagueAction}>
+              <input type="hidden" name="leagueId" value={league.id} />
+              <Button type="submit">
+                Start league ({eligibleCount} teams)
+              </Button>
+            </form>
+          )}
+          {league.state === "OPEN" && eligibleCount < 2 && (
+            <p className="text-sm text-foreground-muted">
+              Need at least 2 teams marked PAID or WAIVED to start the bracket.
+              {eligibleCount === 1 && " 1 eligible so far."}
+            </p>
           )}
           {canCancelLeague(league) && (
             <form action={cancelLeagueAction}>
