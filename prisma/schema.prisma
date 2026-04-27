@@ -8,6 +8,20 @@ datasource db {
   directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
+enum LeagueState {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PayoutPreset {
+  WTA
+  TOP_2
+  TOP_3
+}
+
 model User {
   id                       String    @id @default(cuid())
   email                    String    @unique
@@ -18,6 +32,7 @@ model User {
   stripeConnectedAccountId String?
   accounts                 Account[]
   sessions                 Session[]
+  organizedLeagues         League[]
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 }
@@ -56,4 +71,30 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model League {
+  id                   String       @id @default(cuid())
+  slug                 String       @unique
+  name                 String
+  description          String?
+  game                 String
+  teamSize             Int
+  maxTeams             Int
+  buyInCents           Int
+  payoutPreset         PayoutPreset @default(WTA)
+  state                LeagueState  @default(DRAFT)
+  organizerId          String
+  inviteToken          String       @unique
+  publishedAt          DateTime?
+  registrationClosesAt DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  organizer User @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+
+  @@index([organizerId])
 }
