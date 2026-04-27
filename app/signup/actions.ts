@@ -20,6 +20,7 @@ export async function signupAction(
     password: String(formData.get("password") ?? ""),
     displayName: String(formData.get("displayName") ?? ""),
     ageConfirmed: formData.get("ageConfirmed") === "on",
+    acceptTerms: formData.get("acceptTerms") === "on",
   };
 
   const parsed = signupSchema.safeParse(raw);

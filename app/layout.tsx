@@ -12,10 +12,43 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const description =
+  "Bracket generation, team registration, match reporting, and entry tracking — for friend groups, Discord communities, dorms, and office crews.";
+
 export const metadata: Metadata = {
-  title: "LADDER.gg — Run gaming leagues with your crew",
-  description:
-    "Bracket, buy-ins, match reporting, and payouts. All in one place — for friend groups, Discord communities, dorms, and office crews.",
+  metadataBase: new URL("https://ladder-gg-app.vercel.app"),
+  title: {
+    default: "LADDER.gg — Run gaming leagues with your crew",
+    template: "%s · LADDER.gg",
+  },
+  description,
+  applicationName: "LADDER.gg",
+  authors: [{ name: "LADDER.gg" }],
+  keywords: [
+    "gaming league",
+    "tournament bracket",
+    "single elimination",
+    "Discord tournament",
+    "dorm tournament",
+    "office tournament",
+    "league management",
+  ],
+  openGraph: {
+    title: "LADDER.gg — Run gaming leagues with your crew",
+    description,
+    type: "website",
+    siteName: "LADDER.gg",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary",
+    title: "LADDER.gg — Run gaming leagues with your crew",
+    description,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

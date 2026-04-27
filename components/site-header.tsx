@@ -29,10 +29,16 @@ export async function SiteHeader() {
           <Button asChild variant="secondary" size="sm">
             <Link href="/leagues/new">Create a league</Link>
           </Button>
-          <Avatar
-            name={user.name ?? user.email ?? "?"}
-            size="sm"
-          />
+          <Link
+            href="/account"
+            aria-label="Account"
+            className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <Avatar
+              name={user.name ?? user.email ?? "?"}
+              size="sm"
+            />
+          </Link>
           <form
             action={async () => {
               "use server";

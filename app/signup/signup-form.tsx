@@ -9,6 +9,9 @@ import { signupAction, type SignupActionState } from "./actions";
 
 const initialState: SignupActionState = {};
 
+const checkboxClass =
+  "mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-surface accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
 export function SignupForm() {
   const [state, formAction, pending] = useActionState(
     signupAction,
@@ -61,16 +64,47 @@ export function SignupForm() {
           <input
             type="checkbox"
             name="ageConfirmed"
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-surface accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className={checkboxClass}
           />
           <span className="text-foreground-muted">
-            I confirm I am 18 or older and agree to participate in skill-based
-            competition for money.
+            I confirm I am 18 or older.
           </span>
         </label>
         {state.fieldErrors?.ageConfirmed && (
           <p className="text-xs text-destructive">
             {state.fieldErrors.ageConfirmed}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="acceptTerms"
+            className={checkboxClass}
+          />
+          <span className="text-foreground-muted">
+            I agree to the{" "}
+            <Link
+              href="/legal/terms"
+              className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/legal/privacy"
+              className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              Privacy Policy
+            </Link>
+            .
+          </span>
+        </label>
+        {state.fieldErrors?.acceptTerms && (
+          <p className="text-xs text-destructive">
+            {state.fieldErrors.acceptTerms}
           </p>
         )}
       </div>

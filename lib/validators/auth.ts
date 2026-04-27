@@ -19,6 +19,11 @@ export const signupSchema = z.object({
     .refine((v) => v === true, {
       message: "You must be 18 or older to sign up.",
     }),
+  acceptTerms: z
+    .boolean()
+    .refine((v) => v === true, {
+      message: "You must agree to the Terms and Privacy Policy.",
+    }),
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;
