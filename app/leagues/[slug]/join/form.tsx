@@ -14,6 +14,7 @@ type Props = {
   token: string;
   teamSize: number;
   buyInCents: number;
+  paymentInstructions: string | null;
   captainDisplayName: string;
 };
 
@@ -24,6 +25,7 @@ export function JoinForm({
   token,
   teamSize,
   buyInCents,
+  paymentInstructions,
   captainDisplayName,
 }: Props) {
   const [state, action, pending] = useActionState(
@@ -78,16 +80,29 @@ export function JoinForm({
         </div>
       )}
 
+      {buyInCents > 0 && (
+        <div className="rounded-md border border-border bg-surface px-4 py-3 text-sm">
+          <p className="font-medium">
+            Entry fee: ${(buyInCents / 100).toFixed(2)}
+          </p>
+          <p className="mt-1 text-foreground-muted">
+            Paid to the organizer outside LADDER. Your team will be marked
+            PENDING until the organizer confirms your payment.
+          </p>
+          {paymentInstructions && (
+            <p className="mt-2 whitespace-pre-wrap text-foreground-muted">
+              {paymentInstructions}
+            </p>
+          )}
+        </div>
+      )}
+
       {state.error && (
         <p className="text-sm text-destructive">{state.error}</p>
       )}
 
       <Button type="submit" disabled={pending}>
-        {pending
-          ? "Registering…"
-          : buyInCents === 0
-            ? "Register team"
-            : `Continue to payment ($${(buyInCents / 100).toFixed(2)})`}
+        {pending ? "Registering…" : "Register team"}
       </Button>
     </form>
   );

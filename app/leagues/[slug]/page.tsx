@@ -92,22 +92,52 @@ export default async function PublicLeaguePage({ params }: Props) {
                 </Card>
                 <Card>
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle">
-                    Buy-in
+                    Entry fee
                   </h3>
                   <p className="mt-2 font-mono text-xl">
                     ${(league.buyInCents / 100).toFixed(2)}
                   </p>
+                  <p className="mt-1 text-xs text-foreground-subtle">
+                    Organizer-managed
+                  </p>
                 </Card>
                 <Card>
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle">
-                    Payout
+                    Prize split
                   </h3>
                   <p className="mt-2 font-mono text-sm">
                     {payoutLabels[league.payoutPreset]}
                   </p>
                 </Card>
               </div>
-              <p className="mt-8 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-sm text-foreground-muted">
+
+              {league.prizeNotes && (
+                <div className="mt-8 rounded-lg border border-border bg-surface p-5">
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Prize notes
+                  </h3>
+                  <p className="mt-3 whitespace-pre-wrap text-sm">
+                    {league.prizeNotes}
+                  </p>
+                </div>
+              )}
+
+              {league.paymentInstructions && (
+                <div className="mt-4 rounded-lg border border-border bg-surface p-5">
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Payment instructions
+                  </h3>
+                  <p className="mt-3 whitespace-pre-wrap text-sm">
+                    {league.paymentInstructions}
+                  </p>
+                </div>
+              )}
+
+              <p className="mt-8 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-xs text-foreground-subtle">
+                Entry fees and prizes are managed by the organizer off-platform. LADDER tracks teams, brackets, and results.
+              </p>
+
+              <p className="mt-4 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-sm text-foreground-muted">
                 Bracket appears once the organizer starts the league.
               </p>
             </TabsContent>

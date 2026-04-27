@@ -25,6 +25,7 @@ enum PayoutPreset {
 enum PaymentStatus {
   PENDING
   PAID
+  WAIVED
   REFUNDED
 }
 
@@ -90,6 +91,8 @@ model League {
   maxTeams             Int
   buyInCents           Int
   payoutPreset         PayoutPreset @default(WTA)
+  paymentInstructions  String?
+  prizeNotes           String?
   state                LeagueState  @default(DRAFT)
   organizerId          String
   inviteToken          String       @unique

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   createLeagueAction,
   type CreateLeagueActionState,
@@ -95,9 +96,9 @@ export function CreateLeagueForm() {
       </div>
 
       <FormField
-        label="Buy-in (USD)"
+        label="Entry fee (USD)"
         htmlFor="buyInDollars"
-        hint="Per team. Enter 0 for a free league."
+        hint="Per team. Captains pay you directly off-platform. Enter 0 for a free league."
         error={state.fieldErrors?.buyInDollars}
       >
         <Input
@@ -112,9 +113,9 @@ export function CreateLeagueForm() {
       </FormField>
 
       <FormField
-        label="Payout preset"
+        label="Prize split"
         htmlFor="payoutPreset"
-        hint="How the pool splits among top teams. Platform rake of 10% applies."
+        hint="How you'll split the prize among top finishers. You manage the actual payout."
         error={state.fieldErrors?.payoutPreset}
       >
         <Select id="payoutPreset" name="payoutPreset" defaultValue="WTA">
@@ -122,6 +123,34 @@ export function CreateLeagueForm() {
           <option value="TOP_2">Top 2: 70 / 30</option>
           <option value="TOP_3">Top 3: 60 / 30 / 10</option>
         </Select>
+      </FormField>
+
+      <FormField
+        label="Payment instructions"
+        htmlFor="paymentInstructions"
+        hint='Optional. Tell captains how to pay you. e.g. "Venmo @your-handle by Friday."'
+        error={state.fieldErrors?.paymentInstructions}
+      >
+        <Textarea
+          id="paymentInstructions"
+          name="paymentInstructions"
+          maxLength={500}
+          rows={3}
+        />
+      </FormField>
+
+      <FormField
+        label="Prize notes"
+        htmlFor="prizeNotes"
+        hint='Optional. Describe the prize. e.g. "$50 winner, $20 runner-up, paid via Venmo within 48h."'
+        error={state.fieldErrors?.prizeNotes}
+      >
+        <Textarea
+          id="prizeNotes"
+          name="prizeNotes"
+          maxLength={500}
+          rows={3}
+        />
       </FormField>
 
       {state.error && (

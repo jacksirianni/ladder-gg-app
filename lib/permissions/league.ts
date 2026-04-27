@@ -46,3 +46,18 @@ export async function requireLeagueCaptain(leagueId: string, userId: string) {
   }
   return team;
 }
+
+/**
+ * Whether a viewer is allowed to see the payment status / amount for a team.
+ * - Organizer of the league sees all teams.
+ * - Captain of the team sees only their own.
+ * - Everyone else sees nothing payment-related.
+ */
+export function canViewPayment(
+  viewerId: string | null | undefined,
+  team: { captainUserId: string },
+  league: { organizerId: string },
+): boolean {
+  if (!viewerId) return false;
+  return viewerId === team.captainUserId || viewerId === league.organizerId;
+}

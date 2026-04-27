@@ -6,24 +6,24 @@ const steps = [
   {
     n: "01",
     title: "Organizer sets up",
-    body: "Choose the game, team size, buy-in, and payout. Share an invite link with your captains.",
+    body: "Choose the game, team size, entry fee, and prize split. Share an invite link with your captains.",
   },
   {
     n: "02",
-    title: "Captains pay and compete",
-    body: "Teams register, pay their buy-in through Stripe, and play their matches on the auto-generated bracket.",
+    title: "Captains register and play",
+    body: "Teams sign up through the link and play their matches on the auto-generated bracket. Entry fees go directly to the organizer.",
   },
   {
     n: "03",
-    title: "Winners get paid",
-    body: "Report the result, the opponent confirms, and LADDER pays out the winning captain automatically.",
+    title: "Track results",
+    body: "Captains report each match, the opponent confirms, and the bracket advances. Disputes go to the organizer.",
   },
 ];
 
 const audience = [
   {
     title: "Friend groups",
-    body: "Saturday tournaments, recurring ladders, side bets.",
+    body: "Saturday tournaments, recurring ladders, side bets among the crew.",
   },
   {
     title: "Discord communities",
@@ -56,7 +56,7 @@ export default function Home() {
         <section className="px-6 py-20 md:px-12 md:py-32">
           <div className="mx-auto max-w-5xl">
             <span className="inline-block rounded-full border border-border bg-surface px-3 py-1 font-mono text-xs text-foreground-muted">
-              Skill-based · US-only · 18+
+              League management for gaming crews · 18+
             </span>
             <h1 className="mt-6 text-4xl font-semibold leading-tight tracking-tight md:text-6xl">
               Run your gaming league
@@ -64,8 +64,9 @@ export default function Home() {
               <span className="text-primary">end-to-end.</span>
             </h1>
             <p className="mt-6 max-w-2xl text-lg text-foreground-muted md:text-xl">
-              Bracket, buy-ins, match reporting, and payouts. All in one place,
-              for friend groups, Discord communities, dorms, and office crews.
+              Bracket generation, team registration, match reporting, and
+              entry tracking. For friend groups, Discord communities, dorms,
+              and office crews.
             </p>
             <div className="mt-10 flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg">
@@ -87,7 +88,7 @@ export default function Home() {
               How it works
             </h2>
             <p className="mt-4 max-w-2xl text-2xl font-semibold tracking-tight md:text-3xl">
-              One flow from league creation to payout. No Venmo, no spreadsheets, no screenshots.
+              One flow for league setup, registration, and bracket tracking. Replaces hand-built brackets, scattered Discord threads, and result spreadsheets.
             </p>
             <div className="mt-12 grid gap-4 md:grid-cols-3">
               {steps.map((step) => (
@@ -136,15 +137,32 @@ export default function Home() {
         <section className="border-t border-border px-6 py-20 md:px-12 md:py-24">
           <div className="mx-auto max-w-5xl">
             <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-              Pricing
+              What LADDER does
             </h2>
-            <p className="mt-4 text-3xl font-semibold leading-tight tracking-tight md:text-5xl">
-              <span className="text-success">90%</span> of every pot goes to the
-              winners.
-            </p>
-            <p className="mt-4 max-w-2xl text-lg text-foreground-muted">
-              LADDER takes a flat 10% rake on buy-ins. No organizer cut. No
-              hidden fees. No subscriptions.
+            <div className="mt-6 grid gap-6 md:grid-cols-2">
+              <div className="rounded-lg border border-border bg-surface p-5">
+                <h3 className="font-semibold">LADDER handles</h3>
+                <ul className="mt-3 flex flex-col gap-2 text-sm text-foreground-muted">
+                  <li>League setup and configuration</li>
+                  <li>Team registration and roster tracking</li>
+                  <li>Auto-generated single-elimination brackets</li>
+                  <li>Match reporting and confirmation</li>
+                  <li>Dispute escalation to the organizer</li>
+                  <li>Public league page anyone can view</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-surface p-5">
+                <h3 className="font-semibold">Organizer handles</h3>
+                <ul className="mt-3 flex flex-col gap-2 text-sm text-foreground-muted">
+                  <li>Collecting entry fees from captains</li>
+                  <li>Holding and distributing the prize</li>
+                  <li>Setting payment instructions on the league page</li>
+                  <li>Marking teams as paid, waived, or refunded</li>
+                </ul>
+              </div>
+            </div>
+            <p className="mt-8 text-sm text-foreground-muted">
+              Free during early access. Paid plans for larger leagues and organizer tools coming later.
             </p>
           </div>
         </section>

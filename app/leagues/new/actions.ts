@@ -26,6 +26,8 @@ export async function createLeagueAction(
     maxTeams: String(formData.get("maxTeams") ?? ""),
     buyInDollars: String(formData.get("buyInDollars") ?? ""),
     payoutPreset: String(formData.get("payoutPreset") ?? "WTA"),
+    paymentInstructions: String(formData.get("paymentInstructions") ?? ""),
+    prizeNotes: String(formData.get("prizeNotes") ?? ""),
   };
 
   const parsed = createLeagueSchema.safeParse(raw);
@@ -40,7 +42,12 @@ export async function createLeagueAction(
     return { fieldErrors };
   }
 
-  const { buyInDollars, ...rest } = parsed.data;
+  const {
+    buyInDollars,
+    paymentInstructions,
+    prizeNotes,
+    ...rest
+  } = parsed.data;
   const buyInCents = Math.round(buyInDollars * 100);
 
   // Retry on rare slug collisions.
@@ -58,6 +65,8 @@ export async function createLeagueAction(
     data: {
       ...rest,
       buyInCents,
+      paymentInstructions: paymentInstructions ?? null,
+      prizeNotes: prizeNotes ?? null,
       slug,
       inviteToken: generateInviteToken(),
       organizerId: user.id,

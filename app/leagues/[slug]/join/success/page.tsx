@@ -27,6 +27,8 @@ export default async function JoinSuccessPage({ params, searchParams }: Props) {
   if (!team || team.captainUserId !== session.user.id) notFound();
   if (team.league.slug !== slug) notFound();
 
+  const hasEntryFee = team.league.buyInCents > 0;
+
   return (
     <>
       <SiteHeader />
@@ -40,20 +42,33 @@ export default async function JoinSuccessPage({ params, searchParams }: Props) {
             <span className="text-foreground">{team.league.name}</span>.
           </p>
 
-          <div className="mt-6 rounded-md border border-dashed border-border bg-surface-elevated/40 px-4 py-3">
-            <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-              Payment goes here in M5
+          {hasEntryFee ? (
+            <div className="mt-6 rounded-md border border-border bg-surface px-4 py-3">
+              <p className="font-medium">
+                Entry fee: ${(team.league.buyInCents / 100).toFixed(2)}
+              </p>
+              <p className="mt-2 text-sm text-foreground-muted">
+                Pay the organizer directly using their instructions on the
+                league page. Your team is currently{" "}
+                <span className="font-semibold text-foreground">PENDING</span>{" "}
+                and will move to PAID once the organizer confirms your payment.
+              </p>
+              {team.league.paymentInstructions && (
+                <div className="mt-3 rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm">
+                  <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Payment instructions
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-foreground-muted">
+                    {team.league.paymentInstructions}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="mt-6 text-sm text-foreground-muted">
+              This is a free league. No entry fee to pay.
             </p>
-            <p className="mt-2 text-sm text-foreground-muted">
-              Your team is currently{" "}
-              <span className="font-semibold text-foreground">PENDING</span>.
-              Once Stripe Checkout is wired up, the captain will pay{" "}
-              <span className="font-mono">
-                ${(team.league.buyInCents / 100).toFixed(2)}
-              </span>{" "}
-              here and the team will move to PAID.
-            </p>
-          </div>
+          )}
 
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild>

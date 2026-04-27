@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { PaymentStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { Button } from "@/components/ui/button";
@@ -8,11 +9,12 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
 
-const paymentLabel = {
+const paymentLabel: Record<PaymentStatus, string> = {
   PENDING: "Payment pending",
   PAID: "Paid",
+  WAIVED: "Waived",
   REFUNDED: "Refunded",
-} as const;
+};
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -89,7 +91,7 @@ export default async function DashboardPage() {
                             {league.name}
                           </h3>
                           <p className="mt-1 text-sm text-foreground-muted">
-                            Buy-in ${(league.buyInCents / 100).toFixed(2)} · up to{" "}
+                            Entry fee ${(league.buyInCents / 100).toFixed(2)} · up to{" "}
                             {league.maxTeams} teams
                           </p>
                         </Card>

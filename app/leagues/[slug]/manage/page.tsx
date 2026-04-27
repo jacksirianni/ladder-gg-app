@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import type { PaymentStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
@@ -15,6 +18,7 @@ import {
 import {
   cancelLeagueAction,
   publishLeagueAction,
+  updateTeamPaymentStatusAction,
 } from "./actions";
 
 type Props = {
@@ -27,6 +31,20 @@ const payoutLabels: Record<string, string> = {
   TOP_3: "Top 3 — 60 / 30 / 10",
 };
 
+const paymentVariant: Record<PaymentStatus, "neutral" | "success" | "info" | "warning"> = {
+  PENDING: "neutral",
+  PAID: "success",
+  WAIVED: "info",
+  REFUNDED: "warning",
+};
+
+const paymentLabel: Record<PaymentStatus, string> = {
+  PENDING: "Pending",
+  PAID: "Paid",
+  WAIVED: "Waived",
+  REFUNDED: "Refunded",
+};
+
 export default async function ManageLeaguePage({ params }: Props) {
   const { slug } = await params;
 
@@ -37,6 +55,14 @@ export default async function ManageLeaguePage({ params }: Props) {
 
   const league = await prisma.league.findUnique({
     where: { slug },
+    include: {
+      teams: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          captain: { select: { displayName: true } },
+        },
+      },
+    },
   });
   if (!league) notFound();
   if (league.organizerId !== session.user.id) notFound();
@@ -45,6 +71,9 @@ export default async function ManageLeaguePage({ params }: Props) {
   const host = h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "http";
   const inviteUrl = `${proto}://${host}/leagues/${league.slug}/join?token=${league.inviteToken}`;
+
+  const paidTeams = league.teams.filter((t) => t.paymentStatus === "PAID").length;
+  const totalCollectedCents = paidTeams * league.buyInCents;
 
   return (
     <>
@@ -78,15 +107,16 @@ export default async function ManageLeaguePage({ params }: Props) {
           </Card>
           <Card>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle">
-              Buy-in
+              Entry fee
             </h3>
             <p className="mt-2 font-mono text-xl">
               ${(league.buyInCents / 100).toFixed(2)}
             </p>
+            <p className="mt-1 text-xs text-foreground-subtle">Organizer-managed</p>
           </Card>
           <Card>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle">
-              Payout
+              Prize split
             </h3>
             <p className="mt-2 font-mono text-sm">
               {payoutLabels[league.payoutPreset]}
@@ -99,11 +129,103 @@ export default async function ManageLeaguePage({ params }: Props) {
             Invite link
           </h2>
           <p className="mt-2 text-sm text-foreground-muted">
-            Share this with your captains. Anyone with the link can register a team.
+            Share with your captains. Anyone with the link can register a team.
           </p>
           <div className="mt-4">
             <InviteLinkBox url={inviteUrl} />
           </div>
+        </section>
+
+        {(league.paymentInstructions || league.prizeNotes) && (
+          <section className="mt-10 grid gap-4 md:grid-cols-2">
+            {league.paymentInstructions && (
+              <Card>
+                <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                  Payment instructions
+                </h3>
+                <p className="mt-3 whitespace-pre-wrap text-sm">
+                  {league.paymentInstructions}
+                </p>
+              </Card>
+            )}
+            {league.prizeNotes && (
+              <Card>
+                <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                  Prize notes
+                </h3>
+                <p className="mt-3 whitespace-pre-wrap text-sm">
+                  {league.prizeNotes}
+                </p>
+              </Card>
+            )}
+          </section>
+        )}
+
+        <section className="mt-10">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            Teams
+          </h2>
+          <p className="mt-2 text-sm text-foreground-muted">
+            {league.teams.length} of {league.maxTeams} registered
+            {league.buyInCents > 0 && (
+              <>
+                {" · "}
+                <span className="text-foreground">
+                  {paidTeams} paid · ${(totalCollectedCents / 100).toFixed(2)} collected
+                </span>
+              </>
+            )}
+          </p>
+
+          {league.teams.length === 0 ? (
+            <p className="mt-4 text-sm text-foreground-subtle">
+              No teams yet. Share the invite link above.
+            </p>
+          ) : (
+            <ul className="mt-4 flex flex-col gap-3">
+              {league.teams.map((team) => (
+                <li
+                  key={team.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{team.name}</p>
+                      <Badge variant={paymentVariant[team.paymentStatus]}>
+                        {paymentLabel[team.paymentStatus]}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-foreground-muted">
+                      Captain:{" "}
+                      <span className="text-foreground">
+                        {team.captain.displayName}
+                      </span>
+                    </p>
+                  </div>
+                  <form
+                    action={updateTeamPaymentStatusAction}
+                    className="flex flex-wrap items-center gap-2"
+                  >
+                    <input type="hidden" name="teamId" value={team.id} />
+                    <Select
+                      name="paymentStatus"
+                      defaultValue={team.paymentStatus}
+                      className="w-auto"
+                      aria-label={`Payment status for ${team.name}`}
+                    >
+                      <option value="PENDING">Pending</option>
+                      <option value="PAID">Paid</option>
+                      <option value="WAIVED">Waived</option>
+                      <option value="REFUNDED">Refunded</option>
+                    </Select>
+                    <Button type="submit" size="sm" variant="secondary">
+                      Update
+                    </Button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="mt-10 flex flex-wrap gap-3 border-t border-border pt-8">

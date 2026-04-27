@@ -112,6 +112,7 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
             token={token}
             teamSize={league.teamSize}
             buyInCents={league.buyInCents}
+            paymentInstructions={league.paymentInstructions}
             captainDisplayName={
               session.user.name ?? session.user.email ?? "you"
             }

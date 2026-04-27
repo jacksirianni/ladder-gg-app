@@ -15,16 +15,20 @@ type Props = {
   showPayment: boolean;
 };
 
-const paymentVariant: Record<PaymentStatus, "neutral" | "success" | "warning"> =
-  {
-    PENDING: "neutral",
-    PAID: "success",
-    REFUNDED: "warning",
-  };
+const paymentVariant: Record<
+  PaymentStatus,
+  "neutral" | "success" | "info" | "warning"
+> = {
+  PENDING: "neutral",
+  PAID: "success",
+  WAIVED: "info",
+  REFUNDED: "warning",
+};
 
 const paymentLabel: Record<PaymentStatus, string> = {
   PENDING: "Pending",
   PAID: "Paid",
+  WAIVED: "Waived",
   REFUNDED: "Refunded",
 };
 

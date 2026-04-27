@@ -1,17 +1,20 @@
 import { z } from "zod";
 
+const optionalLongText = (label: string) =>
+  z
+    .string()
+    .trim()
+    .max(500, `${label} must be 500 characters or fewer.`)
+    .optional()
+    .or(z.literal("").transform(() => undefined));
+
 export const createLeagueSchema = z.object({
   name: z
     .string()
     .trim()
     .min(1, "League name is required.")
     .max(80, "League name must be 80 characters or fewer."),
-  description: z
-    .string()
-    .trim()
-    .max(500, "Description must be 500 characters or fewer.")
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
+  description: optionalLongText("Description"),
   game: z
     .string()
     .trim()
@@ -29,9 +32,11 @@ export const createLeagueSchema = z.object({
     .max(32, "Max teams must be 32 or fewer."),
   buyInDollars: z.coerce
     .number()
-    .min(0, "Buy-in cannot be negative.")
-    .max(10000, "Buy-in must be $10,000 or less."),
+    .min(0, "Entry fee cannot be negative.")
+    .max(10000, "Entry fee must be $10,000 or less."),
   payoutPreset: z.enum(["WTA", "TOP_2", "TOP_3"]),
+  paymentInstructions: optionalLongText("Payment instructions"),
+  prizeNotes: optionalLongText("Prize notes"),
 });
 
 export type CreateLeagueInput = z.infer<typeof createLeagueSchema>;
