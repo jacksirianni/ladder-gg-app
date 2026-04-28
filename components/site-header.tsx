@@ -2,14 +2,7 @@ import Link from "next/link";
 import { auth, signOut } from "@/auth";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-
-function Wordmark() {
-  return (
-    <span className="font-mono text-sm font-semibold tracking-tight md:text-base">
-      LADDER<span className="text-primary">.gg</span>
-    </span>
-  );
-}
+import { LadderLockup } from "@/components/brand/ladder-lockup";
 
 export async function SiteHeader() {
   const session = await auth();
@@ -21,7 +14,7 @@ export async function SiteHeader() {
         href={user ? "/dashboard" : "/"}
         className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
-        <Wordmark />
+        <LadderLockup size={15} />
       </Link>
 
       {user ? (

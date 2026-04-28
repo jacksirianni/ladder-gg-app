@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { auth, signOut } from "@/auth";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { LadderLockup } from "@/components/brand/ladder-lockup";
 import { LandingHeroPreview } from "./landing-hero-preview";
 
 // Landing-specific token overrides. The in-app --primary stays #8b5cf6;
@@ -13,22 +14,6 @@ const LANDING_TOKENS = {
   "--background": "#0a0a0c",
   "--border": "#2a2a2e",
 } as CSSProperties;
-
-function Wordmark({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
-  const fontSize = size === "lg" ? 20 : size === "sm" ? 13 : 15;
-  return (
-    <span
-      className="font-mono font-semibold"
-      style={{
-        fontSize,
-        letterSpacing: "-0.01em",
-        color: "var(--foreground)",
-      }}
-    >
-      LADDER<span style={{ color: "var(--primary)" }}>.gg</span>
-    </span>
-  );
-}
 
 function Eyebrow({
   children,
@@ -126,7 +111,7 @@ async function LandingNav() {
             href="/"
             className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            <Wordmark size="md" />
+            <LadderLockup size={15} />
           </Link>
           <div
             className="hidden items-center gap-6 text-[13px] md:flex"
@@ -1033,7 +1018,7 @@ function SplitSection() {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Wordmark size="sm" />
+                <LadderLockup size={13} />
                 <span
                   className="text-[13px]"
                   style={{ color: "var(--foreground-muted)" }}
@@ -1296,7 +1281,7 @@ function LandingFooter() {
     >
       <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Wordmark size="sm" />
+          <LadderLockup size={13} />
           <span
             className="text-[13px]"
             style={{ color: "var(--foreground-subtle)" }}
