@@ -18,6 +18,8 @@ export type TeamActionState = {
   fieldErrors?: Record<string, string>;
 };
 
+// v1.3: also accepts updates from the original reporter while AWAITING_CONFIRM,
+// letting captains correct a typo before the opponent confirms.
 export async function submitMatchReportAction(
   _prev: MatchActionState,
   formData: FormData,
@@ -46,10 +48,18 @@ export async function submitMatchReportAction(
       league: { select: { slug: true } },
       teamA: { select: { id: true, captainUserId: true } },
       teamB: { select: { id: true, captainUserId: true } },
+      reports: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { reportedByUserId: true },
+      },
     },
   });
   if (!match) return { error: "Match not found." };
-  if (match.status !== "AWAITING_REPORT") {
+  if (
+    match.status !== "AWAITING_REPORT" &&
+    match.status !== "AWAITING_CONFIRM"
+  ) {
     return { error: "This match is not awaiting a report." };
   }
   if (!match.teamA || !match.teamB) {
@@ -61,6 +71,17 @@ export async function submitMatchReportAction(
     user.id === match.teamB.captainUserId;
   if (!isCaptainInMatch) {
     return { error: "Only captains in this match can report a result." };
+  }
+
+  // While AWAITING_CONFIRM, only the original reporter can edit.
+  if (match.status === "AWAITING_CONFIRM") {
+    const latestReport = match.reports[0];
+    if (!latestReport || latestReport.reportedByUserId !== user.id) {
+      return {
+        error:
+          "Only the captain who reported this result can edit it. The opposing captain can confirm or dispute.",
+      };
+    }
   }
 
   if (winnerTeamId !== match.teamA.id && winnerTeamId !== match.teamB.id) {
@@ -281,7 +302,6 @@ export async function leaveTeamAction(formData: FormData) {
   redirect("/dashboard");
 }
 
-// v1.2: captain edits team name + roster while DRAFT or OPEN.
 export async function updateTeamAction(
   _prev: TeamActionState,
   formData: FormData,

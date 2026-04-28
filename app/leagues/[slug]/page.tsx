@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -12,6 +11,8 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { BracketView } from "@/components/bracket-view";
+import { ChampionHero } from "@/components/champion-hero";
+import { ConfirmButton } from "@/components/confirm-button";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
@@ -125,6 +126,21 @@ export default async function PublicLeaguePage({ params }: Props) {
     league.state === "COMPLETED" && finalMatch?.winnerTeamId
       ? league.teams.find((t) => t.id === finalMatch.winnerTeamId) ?? null
       : null;
+  const runnerUpId =
+    league.state === "COMPLETED" && finalMatch?.winnerTeamId
+      ? finalMatch.teamAId === finalMatch.winnerTeamId
+        ? finalMatch.teamBId
+        : finalMatch.teamAId
+      : null;
+  const runnerUpName = runnerUpId
+    ? league.teams.find((t) => t.id === runnerUpId)?.name ?? null
+    : null;
+  const matchesPlayed = league.matches.filter(
+    (m) => m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED",
+  ).length;
+  const disputesCount = league.matches.filter(
+    (m) => m.disputedAt !== null,
+  ).length;
 
   const showBracket =
     league.state === "IN_PROGRESS" || league.state === "COMPLETED";
@@ -195,33 +211,40 @@ export default async function PublicLeaguePage({ params }: Props) {
                 />
               )}
               {canLeave && (
-                <form action={leaveTeamAction}>
-                  <input
-                    type="hidden"
-                    name="teamId"
-                    value={captainTeam.id}
-                  />
-                  <Button type="submit" size="sm" variant="ghost">
-                    Leave team
-                  </Button>
-                </form>
+                <ConfirmButton
+                  triggerLabel="Leave team"
+                  triggerVariant="ghost"
+                  triggerSize="sm"
+                  title="Leave this team?"
+                  description="Your team will be removed from the league. The captain spot will be open and you'll need a new invite to rejoin."
+                  confirmLabel="Leave team"
+                  confirmVariant="destructive"
+                  action={leaveTeamAction}
+                  hiddenFields={{ teamId: captainTeam.id }}
+                />
               )}
             </div>
           </div>
         )}
 
         {winnerTeam && (
-          <div className="mt-6 rounded-lg border border-success/40 bg-success/5 px-5 py-4">
-            <p className="font-mono text-xs uppercase tracking-widest text-success">
-              Winner
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-success">
-              {winnerTeam.name}
-            </p>
-            <p className="mt-1 text-sm text-foreground-muted">
-              Captained by {winnerTeam.captain.displayName}
-            </p>
-          </div>
+          <ChampionHero
+            leagueId={league.id}
+            winnerTeam={{
+              id: winnerTeam.id,
+              name: winnerTeam.name,
+              captain: { displayName: winnerTeam.captain.displayName },
+              roster: winnerTeam.roster.map((r) => ({
+                displayName: r.displayName,
+                position: r.position,
+              })),
+            }}
+            runnerUpName={runnerUpName}
+            totalTeams={league.teams.length}
+            matchesPlayed={matchesPlayed}
+            disputesCount={disputesCount}
+            isOrganizer={isOrganizer}
+          />
         )}
 
         <div className="mt-10">
@@ -342,7 +365,11 @@ export default async function PublicLeaguePage({ params }: Props) {
             </TabsContent>
 
             <TabsContent value="matches" className="mt-6">
-              <MatchesTab matches={matchesForTab} viewerId={viewerId} />
+              <MatchesTab
+                matches={matchesForTab}
+                viewerId={viewerId}
+                isOrganizer={isOrganizer}
+              />
             </TabsContent>
           </Tabs>
         </div>

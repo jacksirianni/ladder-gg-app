@@ -32,9 +32,10 @@ export type MatchForTab = {
 type Props = {
   matches: MatchForTab[];
   viewerId: string | null;
+  isOrganizer?: boolean;
 };
 
-export function MatchesTab({ matches, viewerId }: Props) {
+export function MatchesTab({ matches, viewerId, isOrganizer = false }: Props) {
   const [openMatchId, setOpenMatchId] = useState<string | null>(null);
   const openMatch = matches.find((m) => m.id === openMatchId) ?? null;
 
@@ -63,6 +64,7 @@ export function MatchesTab({ matches, viewerId }: Props) {
       <MatchActionModal
         match={openMatch}
         viewerId={viewerId}
+        isOrganizer={isOrganizer}
         onClose={() => setOpenMatchId(null)}
       />
     </>

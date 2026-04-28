@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { MatchStatus } from "@prisma/client";
 import {
   Dialog,
@@ -17,6 +17,7 @@ import {
   submitMatchReportAction,
   type MatchActionState,
 } from "@/app/leagues/[slug]/actions";
+import { overrideMatchAction } from "@/app/leagues/[slug]/manage/actions";
 
 type Match = {
   id: string;
@@ -44,6 +45,8 @@ type Match = {
 type Props = {
   match: Match | null;
   viewerId: string | null;
+  /** v1.3: lets the modal show organizer-only override controls. */
+  isOrganizer?: boolean;
   onClose: () => void;
 };
 
@@ -60,7 +63,12 @@ function formatTimestamp(iso: string | null): string {
   });
 }
 
-export function MatchActionModal({ match, viewerId, onClose }: Props) {
+export function MatchActionModal({
+  match,
+  viewerId,
+  isOrganizer = false,
+  onClose,
+}: Props) {
   const open = match !== null;
 
   const [reportState, reportAction, reportPending] = useActionState(
@@ -75,6 +83,11 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
     disputeMatchAction,
     initialState,
   );
+
+  // v1.3: lets the original reporter switch into edit mode while AWAITING_CONFIRM.
+  const [editingReport, setEditingReport] = useState(false);
+  // v1.3: lets the organizer reveal the override control on resolved matches.
+  const [overrideOpen, setOverrideOpen] = useState(false);
 
   if (!match) {
     return (
@@ -109,7 +122,6 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
         ? teamBName
         : null;
 
-  // v1.1 activity log entries
   const activity: { label: string }[] = [];
   if (latestReport) {
     activity.push({
@@ -140,8 +152,19 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
     });
   }
 
+  const showResolved =
+    match.status === "CONFIRMED" || match.status === "ORGANIZER_DECIDED";
+  const showOverride = isOrganizer && showResolved;
+
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog
+      open={open}
+      onClose={() => {
+        setEditingReport(false);
+        setOverrideOpen(false);
+        onClose();
+      }}
+    >
       <DialogTitle>
         Round {match.round} · Match {match.bracketPosition}
       </DialogTitle>
@@ -157,50 +180,16 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
       )}
 
       {match.status === "AWAITING_REPORT" && isCaptainInMatch && (
-        <form action={reportAction} className="mt-6 flex flex-col gap-4">
-          <input type="hidden" name="matchId" value={match.id} />
-          <FormField
-            label="Winner"
-            htmlFor="winnerTeamId"
-            error={reportState.fieldErrors?.winnerTeamId}
-          >
-            <Select id="winnerTeamId" name="winnerTeamId" required defaultValue="">
-              <option value="" disabled>
-                Choose a winner
-              </option>
-              {match.teamA && (
-                <option value={match.teamA.id}>{match.teamA.name}</option>
-              )}
-              {match.teamB && (
-                <option value={match.teamB.id}>{match.teamB.name}</option>
-              )}
-            </Select>
-          </FormField>
-          <FormField
-            label="Score"
-            htmlFor="scoreText"
-            hint='Optional. Free-form, e.g. "3-1".'
-            error={reportState.fieldErrors?.scoreText}
-          >
-            <Input
-              id="scoreText"
-              name="scoreText"
-              maxLength={30}
-              placeholder="3-1"
-            />
-          </FormField>
-          {reportState.error && (
-            <p className="text-sm text-destructive">{reportState.error}</p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={reportPending}>
-              {reportPending ? "Submitting…" : "Submit result"}
-            </Button>
-          </div>
-        </form>
+        <ReportForm
+          match={match}
+          reportState={reportState}
+          reportAction={reportAction}
+          reportPending={reportPending}
+          submitLabel="Submit result"
+          pendingLabel="Submitting…"
+          defaults={null}
+          onCancel={onClose}
+        />
       )}
 
       {match.status === "AWAITING_REPORT" && !isCaptainInMatch && (
@@ -260,19 +249,52 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
         </div>
       )}
 
-      {match.status === "AWAITING_CONFIRM" && isReporter && (
-        <div className="mt-6 text-sm text-foreground-muted">
-          You reported{" "}
-          <span className="text-foreground">{reportedWinnerName ?? "?"}</span> as
-          the winner
-          {latestReport?.scoreText && (
-            <>
-              {" "}
-              <span className="font-mono">({latestReport.scoreText})</span>
-            </>
-          )}
-          . Awaiting confirmation from the opposing captain.
+      {match.status === "AWAITING_CONFIRM" && isReporter && !editingReport && (
+        <div className="mt-6 flex flex-col gap-3">
+          <div className="text-sm text-foreground-muted">
+            You reported{" "}
+            <span className="text-foreground">
+              {reportedWinnerName ?? "?"}
+            </span>{" "}
+            as the winner
+            {latestReport?.scoreText && (
+              <>
+                {" "}
+                <span className="font-mono">({latestReport.scoreText})</span>
+              </>
+            )}
+            . Awaiting confirmation from the opposing captain.
+          </div>
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setEditingReport(true)}
+            >
+              Edit report
+            </Button>
+            <span className="ml-2 text-xs text-foreground-subtle">
+              Fix a typo before your opponent confirms.
+            </span>
+          </div>
         </div>
+      )}
+
+      {match.status === "AWAITING_CONFIRM" && isReporter && editingReport && (
+        <ReportForm
+          match={match}
+          reportState={reportState}
+          reportAction={reportAction}
+          reportPending={reportPending}
+          submitLabel="Update report"
+          pendingLabel="Updating…"
+          defaults={{
+            winnerTeamId: latestReport?.reportedWinnerTeamId ?? "",
+            scoreText: latestReport?.scoreText ?? "",
+          }}
+          onCancel={() => setEditingReport(false)}
+        />
       )}
 
       {match.status === "AWAITING_CONFIRM" && !isCaptainInMatch && (
@@ -306,8 +328,7 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
         </div>
       )}
 
-      {(match.status === "CONFIRMED" ||
-        match.status === "ORGANIZER_DECIDED") && (
+      {showResolved && (
         <div className="mt-6 text-sm">
           <p className="font-medium text-success">
             {finalWinnerName ?? reportedWinnerName ?? "?"} won
@@ -327,7 +348,7 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
         </div>
       )}
 
-      {/* v1.1: activity log */}
+      {/* Activity log */}
       {activity.length > 0 && (
         <div className="mt-6 border-t border-border pt-4">
           <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
@@ -341,13 +362,154 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
         </div>
       )}
 
-      {match.status !== "AWAITING_REPORT" && match.status !== "AWAITING_CONFIRM" && (
-        <div className="mt-6 flex justify-end">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Close
-          </Button>
+      {/* v1.3: organizer override on resolved matches */}
+      {showOverride && (
+        <div className="mt-6 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          {overrideOpen ? (
+            <>
+              <p className="font-medium text-destructive">Override result</p>
+              <p className="mt-1 text-xs text-foreground-muted">
+                Set a different winner. Allowed only when the next match
+                hasn&apos;t been reported yet. The downstream slot will be
+                updated.
+              </p>
+              <form action={overrideMatchAction} className="mt-3 flex flex-wrap items-center gap-2">
+                <input type="hidden" name="matchId" value={match.id} />
+                <Select
+                  name="winnerTeamId"
+                  required
+                  defaultValue={match.winnerTeamId ?? ""}
+                  aria-label="New winner"
+                  className="w-auto"
+                >
+                  {match.teamA && (
+                    <option value={match.teamA.id}>{match.teamA.name}</option>
+                  )}
+                  {match.teamB && (
+                    <option value={match.teamB.id}>{match.teamB.name}</option>
+                  )}
+                </Select>
+                <Button type="submit" size="sm" variant="destructive">
+                  Override result
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setOverrideOpen(false)}
+                >
+                  Cancel
+                </Button>
+              </form>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-foreground-muted">
+                Need to fix this result? Organizer can override.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setOverrideOpen(true)}
+              >
+                Override result
+              </Button>
+            </div>
+          )}
         </div>
       )}
+
+      {match.status !== "AWAITING_REPORT" &&
+        !(match.status === "AWAITING_CONFIRM" && isReporter && editingReport) &&
+        match.status !== "AWAITING_CONFIRM" && (
+          <div className="mt-6 flex justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setEditingReport(false);
+                setOverrideOpen(false);
+                onClose();
+              }}
+            >
+              Close
+            </Button>
+          </div>
+        )}
     </Dialog>
+  );
+}
+
+function ReportForm({
+  match,
+  reportState,
+  reportAction,
+  reportPending,
+  submitLabel,
+  pendingLabel,
+  defaults,
+  onCancel,
+}: {
+  match: Match;
+  reportState: MatchActionState;
+  reportAction: (formData: FormData) => void;
+  reportPending: boolean;
+  submitLabel: string;
+  pendingLabel: string;
+  defaults: { winnerTeamId: string; scoreText: string } | null;
+  onCancel: () => void;
+}) {
+  return (
+    <form action={reportAction} className="mt-6 flex flex-col gap-4">
+      <input type="hidden" name="matchId" value={match.id} />
+      <FormField
+        label="Winner"
+        htmlFor="winnerTeamId"
+        error={reportState.fieldErrors?.winnerTeamId}
+      >
+        <Select
+          id="winnerTeamId"
+          name="winnerTeamId"
+          required
+          defaultValue={defaults?.winnerTeamId ?? ""}
+        >
+          <option value="" disabled>
+            Choose a winner
+          </option>
+          {match.teamA && (
+            <option value={match.teamA.id}>{match.teamA.name}</option>
+          )}
+          {match.teamB && (
+            <option value={match.teamB.id}>{match.teamB.name}</option>
+          )}
+        </Select>
+      </FormField>
+      <FormField
+        label="Score"
+        htmlFor="scoreText"
+        hint='Optional. Free-form, e.g. "3-1".'
+        error={reportState.fieldErrors?.scoreText}
+      >
+        <Input
+          id="scoreText"
+          name="scoreText"
+          maxLength={30}
+          placeholder="3-1"
+          defaultValue={defaults?.scoreText ?? ""}
+        />
+      </FormField>
+      {reportState.error && (
+        <p className="text-sm text-destructive">{reportState.error}</p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={reportPending}>
+          {reportPending ? pendingLabel : submitLabel}
+        </Button>
+      </div>
+    </form>
   );
 }

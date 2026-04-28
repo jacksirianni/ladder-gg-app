@@ -107,7 +107,6 @@ export async function updateTeamPaymentStatusAction(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-// v1.2: bulk-update PENDING teams to PAID or WAIVED.
 export async function bulkUpdatePaymentStatusAction(formData: FormData) {
   const user = await requireAuth();
   const leagueId = String(formData.get("leagueId") ?? "");
@@ -434,5 +433,99 @@ export async function removeTeamAction(formData: FormData) {
 
   revalidatePath(`/leagues/${team.league.slug}/manage`);
   revalidatePath(`/leagues/${team.league.slug}`);
+  revalidatePath("/dashboard");
+}
+
+// v1.3: organizer overrides a confirmed match result.
+// Constrained to cases where downstream impact is contained: the next
+// match must have no reports yet. This avoids invalidating gameplay
+// that's already happened.
+export async function overrideMatchAction(formData: FormData) {
+  const user = await requireAuth();
+  const matchId = String(formData.get("matchId") ?? "");
+  const winnerTeamId = String(formData.get("winnerTeamId") ?? "");
+
+  if (!matchId || !winnerTeamId) {
+    throw new Error("Match id and winner are required.");
+  }
+
+  const slug = await prisma.$transaction(async (tx) => {
+    const match = await tx.match.findUnique({
+      where: { id: matchId },
+      include: {
+        league: { select: { id: true, slug: true, organizerId: true } },
+        teamA: { select: { id: true } },
+        teamB: { select: { id: true } },
+      },
+    });
+    if (!match) throw new Error("Match not found.");
+    if (match.league.organizerId !== user.id) {
+      throw new Error("Only the organizer can override a match.");
+    }
+    if (
+      match.status !== "CONFIRMED" &&
+      match.status !== "ORGANIZER_DECIDED"
+    ) {
+      throw new Error(
+        "Only confirmed or organizer-decided matches can be overridden.",
+      );
+    }
+    if (!match.teamA || !match.teamB) {
+      throw new Error("Both teams must be set.");
+    }
+    if (winnerTeamId !== match.teamA.id && winnerTeamId !== match.teamB.id) {
+      throw new Error("Winner must be one of the two teams in this match.");
+    }
+
+    const nextRound = match.round + 1;
+    const nextPosition = Math.ceil(match.bracketPosition / 2);
+
+    const nextMatch = await tx.match.findUnique({
+      where: {
+        leagueId_round_bracketPosition: {
+          leagueId: match.leagueId,
+          round: nextRound,
+          bracketPosition: nextPosition,
+        },
+      },
+      include: {
+        reports: { take: 1, select: { id: true } },
+      },
+    });
+
+    if (nextMatch && nextMatch.reports.length > 0) {
+      throw new Error(
+        `Cannot override — a downstream match (R${nextRound} M${nextPosition}) has already been reported. Cancel the league and rerun if a major correction is needed.`,
+      );
+    }
+
+    // Update the overridden match.
+    await tx.match.update({
+      where: { id: match.id },
+      data: {
+        status: "ORGANIZER_DECIDED",
+        winnerTeamId,
+        confirmedAt: new Date(),
+        resolvedByUserId: user.id,
+      },
+    });
+
+    // Re-set the downstream slot to the new winner.
+    if (nextMatch) {
+      const isTeamASlot = match.bracketPosition % 2 === 1;
+      const updateData = isTeamASlot
+        ? { teamAId: winnerTeamId }
+        : { teamBId: winnerTeamId };
+      await tx.match.update({
+        where: { id: nextMatch.id },
+        data: updateData,
+      });
+    }
+
+    return match.league.slug;
+  });
+
+  revalidatePath(`/leagues/${slug}`);
+  revalidatePath(`/leagues/${slug}/manage`);
   revalidatePath("/dashboard");
 }

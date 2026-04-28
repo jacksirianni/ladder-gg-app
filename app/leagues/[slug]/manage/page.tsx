@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmButton } from "@/components/confirm-button";
 import { CopyMessageBox } from "@/components/copy-message-box";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
@@ -521,17 +522,18 @@ export default async function ManageLeaguePage({ params }: Props) {
                       </form>
                     )}
                     {canRemoveTeams && (
-                      <form action={removeTeamAction}>
-                        <input type="hidden" name="teamId" value={team.id} />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          variant="ghost"
-                          aria-label={`Remove ${team.name}`}
-                        >
-                          Remove
-                        </Button>
-                      </form>
+                      <ConfirmButton
+                        triggerLabel="Remove"
+                        triggerVariant="ghost"
+                        triggerSize="sm"
+                        triggerAriaLabel={`Remove ${team.name}`}
+                        title={`Remove ${team.name}?`}
+                        description="The team and its roster are removed from the league. The captain can re-register with the invite link if registration is still open."
+                        confirmLabel="Remove team"
+                        confirmVariant="destructive"
+                        action={removeTeamAction}
+                        hiddenFields={{ teamId: team.id }}
+                      />
                     )}
                   </div>
                 </li>
@@ -655,12 +657,20 @@ export default async function ManageLeaguePage({ params }: Props) {
             </Button>
           </form>
           {canCancelLeague(league) && (
-            <form action={cancelLeagueAction}>
-              <input type="hidden" name="leagueId" value={league.id} />
-              <Button type="submit" variant="destructive">
-                Cancel league
-              </Button>
-            </form>
+            <ConfirmButton
+              triggerLabel="Cancel league"
+              triggerVariant="destructive"
+              title="Cancel this league?"
+              description={
+                league.state === "IN_PROGRESS"
+                  ? "The bracket will be marked cancelled and no more matches can be reported. This cannot be undone."
+                  : "The league will be marked cancelled and the invite link will stop accepting new teams. This cannot be undone."
+              }
+              confirmLabel="Cancel league"
+              confirmVariant="destructive"
+              action={cancelLeagueAction}
+              hiddenFields={{ leagueId: league.id }}
+            />
           )}
           {league.state !== "DRAFT" && (
             <Button asChild variant="secondary">

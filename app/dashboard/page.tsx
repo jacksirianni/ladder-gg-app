@@ -14,7 +14,11 @@ const paymentLabel: Record<PaymentStatus, string> = {
   REFUNDED: "Refunded",
 };
 
-const ACTIVE_STATES = new Set<LeagueState>(["OPEN", "IN_PROGRESS"]);
+const ACTIVE_STATES = new Set<LeagueState>(["DRAFT", "OPEN", "IN_PROGRESS"]);
+
+function isActive(state: LeagueState) {
+  return ACTIVE_STATES.has(state);
+}
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -28,6 +32,14 @@ export default async function DashboardPage() {
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { teams: true } },
+        matches: {
+          orderBy: [{ round: "desc" }, { bracketPosition: "asc" }],
+          take: 1,
+          select: {
+            winnerTeamId: true,
+            winner: { select: { name: true } },
+          },
+        },
       },
     }),
     prisma.team.findMany({
@@ -35,7 +47,17 @@ export default async function DashboardPage() {
       orderBy: { createdAt: "desc" },
       include: {
         league: {
-          include: { _count: { select: { teams: true } } },
+          include: {
+            _count: { select: { teams: true } },
+            matches: {
+              orderBy: [{ round: "desc" }, { bracketPosition: "asc" }],
+              take: 1,
+              select: {
+                winnerTeamId: true,
+                winner: { select: { name: true } },
+              },
+            },
+          },
         },
       },
     }),
@@ -87,14 +109,68 @@ export default async function DashboardPage() {
 
   const hasAnything = organized.length > 0 || captained.length > 0;
 
+  // v1.3: split active vs past for both organizing and playing.
+  const organizedActive = organized.filter((l) => isActive(l.state));
+  const organizedPast = organized.filter((l) => !isActive(l.state));
+  const captainedActive = captained.filter((t) => isActive(t.league.state));
+  const captainedPast = captained.filter((t) => !isActive(t.league.state));
+
   const activeIds = new Set<string>();
-  for (const l of organized) {
-    if (ACTIVE_STATES.has(l.state)) activeIds.add(l.id);
-  }
-  for (const t of captained) {
-    if (ACTIVE_STATES.has(t.league.state)) activeIds.add(t.league.id);
-  }
+  for (const l of organizedActive) activeIds.add(l.id);
+  for (const t of captainedActive) activeIds.add(t.league.id);
   const activeCount = activeIds.size;
+
+  // v1.3: champion row = past leagues with a recorded winner, deduped by leagueId.
+  type ChampionRowEntry = {
+    leagueId: string;
+    leagueSlug: string;
+    leagueName: string;
+    leagueState: LeagueState;
+    game: string;
+    championName: string | null;
+    yourTeamName: string | null;
+    youWon: boolean;
+    role: "organizer" | "captain";
+  };
+  const championRowsMap = new Map<string, ChampionRowEntry>();
+  for (const l of organizedPast) {
+    const championName = l.matches[0]?.winner?.name ?? null;
+    championRowsMap.set(l.id, {
+      leagueId: l.id,
+      leagueSlug: l.slug,
+      leagueName: l.name,
+      leagueState: l.state,
+      game: l.game,
+      championName,
+      yourTeamName: null,
+      youWon: false,
+      role: "organizer",
+    });
+  }
+  for (const t of captainedPast) {
+    const championName = t.league.matches[0]?.winner?.name ?? null;
+    const winnerTeamId = t.league.matches[0]?.winnerTeamId ?? null;
+    const youWon = winnerTeamId !== null && winnerTeamId === t.id;
+    const existing = championRowsMap.get(t.league.id);
+    if (existing) {
+      // Already in the map as organizer — annotate that they also captained.
+      existing.yourTeamName = t.name;
+      existing.youWon = youWon;
+    } else {
+      championRowsMap.set(t.league.id, {
+        leagueId: t.league.id,
+        leagueSlug: t.league.slug,
+        leagueName: t.league.name,
+        leagueState: t.league.state,
+        game: t.league.game,
+        championName,
+        yourTeamName: t.name,
+        youWon,
+        role: "captain",
+      });
+    }
+  }
+  const championRows = Array.from(championRowsMap.values());
 
   return (
     <>
@@ -146,14 +222,14 @@ export default async function DashboardPage() {
           </section>
         ) : (
           <>
-            {organized.length > 0 && (
+            {organizedActive.length > 0 && (
               <section className="mt-12">
                 <SectionHeader
                   title="Organizing"
-                  count={organized.length}
+                  count={organizedActive.length}
                 />
                 <ul className="mt-5 grid gap-3 md:grid-cols-2">
-                  {organized.map((league) => (
+                  {organizedActive.map((league) => (
                     <li key={league.id}>
                       <Link
                         href={`/leagues/${league.slug}/manage`}
@@ -187,14 +263,14 @@ export default async function DashboardPage() {
               </section>
             )}
 
-            {captained.length > 0 && (
+            {captainedActive.length > 0 && (
               <section className="mt-10">
                 <SectionHeader
                   title="Playing in"
-                  count={captained.length}
+                  count={captainedActive.length}
                 />
                 <ul className="mt-5 grid gap-3 md:grid-cols-2">
-                  {captained.map((team) => {
+                  {captainedActive.map((team) => {
                     const actionCount =
                       actionsByLeague.get(team.league.id) ?? 0;
                     return (
@@ -238,6 +314,101 @@ export default async function DashboardPage() {
                                 value={`${team.league._count.teams} / ${team.league.maxTeams}`}
                               />
                             </dl>
+                          </article>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
+            {organizedActive.length === 0 &&
+              captainedActive.length === 0 &&
+              championRows.length > 0 && (
+                <section className="mt-12 rounded-lg border border-dashed border-border bg-surface/30 px-6 py-12 text-center">
+                  <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Nothing active right now
+                  </p>
+                  <h2 className="mt-3 text-xl font-semibold tracking-tight">
+                    Run it back?
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-foreground-muted">
+                    Spin up a fresh league to play with the same crew, or jump
+                    in via an invite link.
+                  </p>
+                  <div className="mt-6 flex justify-center">
+                    <Button asChild>
+                      <Link href="/leagues/new">Create a league</Link>
+                    </Button>
+                  </div>
+                </section>
+              )}
+
+            {championRows.length > 0 && (
+              <section className="mt-12">
+                <SectionHeader
+                  title="Past leagues"
+                  count={championRows.length}
+                />
+                <ul className="mt-5 flex flex-col gap-3">
+                  {championRows.map((row) => {
+                    const linkHref =
+                      row.role === "organizer"
+                        ? `/leagues/${row.leagueSlug}/manage`
+                        : `/leagues/${row.leagueSlug}`;
+                    return (
+                      <li key={row.leagueId}>
+                        <Link
+                          href={linkHref}
+                          className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          <article className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-surface px-5 py-4 transition-colors hover:border-zinc-600 hover:bg-surface-elevated">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <LeagueStateBadge state={row.leagueState} />
+                                <span className="font-mono text-xs text-foreground-subtle">
+                                  {row.game}
+                                </span>
+                              </div>
+                              <h3 className="mt-3 truncate text-base font-semibold tracking-tight">
+                                {row.leagueName}
+                              </h3>
+                            </div>
+                            <div className="min-w-0 text-right">
+                              {row.leagueState === "COMPLETED" &&
+                              row.championName ? (
+                                <>
+                                  <p
+                                    className="font-mono text-[11px] uppercase text-foreground-subtle"
+                                    style={{ letterSpacing: "0.16em" }}
+                                  >
+                                    Champion
+                                  </p>
+                                  <p
+                                    className={`mt-1 truncate text-sm font-semibold ${row.youWon ? "text-success" : "text-foreground"}`}
+                                  >
+                                    {row.championName}
+                                    {row.youWon && (
+                                      <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-success">
+                                        you
+                                      </span>
+                                    )}
+                                  </p>
+                                  {row.yourTeamName && !row.youWon && (
+                                    <p className="mt-0.5 truncate text-xs text-foreground-subtle">
+                                      Your team: {row.yourTeamName}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="font-mono text-xs text-foreground-subtle">
+                                  {row.leagueState === "CANCELLED"
+                                    ? "Cancelled"
+                                    : "No champion"}
+                                </p>
+                              )}
+                            </div>
                           </article>
                         </Link>
                       </li>
