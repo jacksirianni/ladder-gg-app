@@ -26,12 +26,18 @@ type Match = {
   teamAId: string | null;
   teamBId: string | null;
   winnerTeamId: string | null;
+  confirmedAt: string | null;
+  disputedAt: string | null;
   teamA: { id: string; name: string; captainUserId: string } | null;
   teamB: { id: string; name: string; captainUserId: string } | null;
+  resolvedBy: { displayName: string } | null;
+  disputedBy: { displayName: string } | null;
   reports: {
     reportedByUserId: string;
     reportedWinnerTeamId: string;
     scoreText: string | null;
+    createdAt: string;
+    reportedBy: { displayName: string };
   }[];
 };
 
@@ -42,6 +48,17 @@ type Props = {
 };
 
 const initialState: MatchActionState = {};
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export function MatchActionModal({ match, viewerId, onClose }: Props) {
   const open = match !== null;
@@ -91,6 +108,37 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
       : match.winnerTeamId === match.teamB?.id
         ? teamBName
         : null;
+
+  // v1.1 activity log entries
+  const activity: { label: string }[] = [];
+  if (latestReport) {
+    activity.push({
+      label: `Reported by ${latestReport.reportedBy.displayName} · ${formatTimestamp(latestReport.createdAt)}`,
+    });
+  }
+  if (match.disputedAt && match.disputedBy) {
+    activity.push({
+      label: `Disputed by ${match.disputedBy.displayName} · ${formatTimestamp(match.disputedAt)}`,
+    });
+  }
+  if (
+    match.confirmedAt &&
+    match.resolvedBy &&
+    match.status === "CONFIRMED"
+  ) {
+    activity.push({
+      label: `Confirmed by ${match.resolvedBy.displayName} · ${formatTimestamp(match.confirmedAt)}`,
+    });
+  }
+  if (
+    match.confirmedAt &&
+    match.resolvedBy &&
+    match.status === "ORGANIZER_DECIDED"
+  ) {
+    activity.push({
+      label: `Resolved by organizer ${match.resolvedBy.displayName} · ${formatTimestamp(match.confirmedAt)}`,
+    });
+  }
 
   return (
     <Dialog open={open} onClose={onClose}>
@@ -276,6 +324,20 @@ export function MatchActionModal({ match, viewerId, onClose }: Props) {
             )}
             .
           </p>
+        </div>
+      )}
+
+      {/* v1.1: activity log */}
+      {activity.length > 0 && (
+        <div className="mt-6 border-t border-border pt-4">
+          <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            Activity
+          </p>
+          <ul className="mt-3 flex flex-col gap-1 text-xs text-foreground-muted">
+            {activity.map((a, i) => (
+              <li key={i}>{a.label}</li>
+            ))}
+          </ul>
         </div>
       )}
 

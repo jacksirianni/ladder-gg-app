@@ -52,6 +52,7 @@ model User {
   captainedTeams           Team[]
   matchReports             MatchReport[] @relation("MatchReportReporter")
   matchesResolved          Match[]       @relation("MatchResolver")
+  matchesDisputed          Match[]       @relation("MatchDisputer")
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
 }
@@ -169,6 +170,8 @@ model Match {
   status           MatchStatus @default(PENDING)
   confirmedAt      DateTime?
   resolvedByUserId String?
+  disputedAt       DateTime?
+  disputedByUserId String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
@@ -177,6 +180,7 @@ model Match {
   teamB      Team?         @relation("MatchTeamB", fields: [teamBId], references: [id], onDelete: SetNull)
   winner     Team?         @relation("MatchWinner", fields: [winnerTeamId], references: [id], onDelete: SetNull)
   resolvedBy User?         @relation("MatchResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  disputedBy User?         @relation("MatchDisputer", fields: [disputedByUserId], references: [id], onDelete: SetNull)
   reports    MatchReport[]
 
   @@unique([leagueId, round, bracketPosition])

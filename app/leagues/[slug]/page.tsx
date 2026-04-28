@@ -1,6 +1,8 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -14,6 +16,7 @@ import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
 import { MatchesTab } from "./matches-tab";
+import { leaveTeamAction } from "./actions";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -24,6 +27,41 @@ const payoutLabels: Record<string, string> = {
   TOP_2: "Top 2 — 70 / 30",
   TOP_3: "Top 3 — 60 / 30 / 10",
 };
+
+const stateLabel: Record<string, string> = {
+  OPEN: "Registration open",
+  IN_PROGRESS: "In progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  DRAFT: "Draft",
+};
+
+// v1.1: per-league OG / Twitter / page metadata.
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const league = await prisma.league.findUnique({
+    where: { slug },
+    include: { _count: { select: { teams: true } } },
+  });
+  if (!league || league.state === "DRAFT") {
+    return {};
+  }
+  const description = `${league.game} · ${league._count.teams}/${league.maxTeams} teams · ${stateLabel[league.state]}`;
+  return {
+    title: league.name,
+    description,
+    openGraph: {
+      title: league.name,
+      description,
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: league.name,
+      description,
+    },
+  };
+}
 
 export default async function PublicLeaguePage({ params }: Props) {
   const { slug } = await params;
@@ -48,6 +86,8 @@ export default async function PublicLeaguePage({ params }: Props) {
           teamB: {
             select: { id: true, name: true, captainUserId: true },
           },
+          resolvedBy: { select: { displayName: true } },
+          disputedBy: { select: { displayName: true } },
           reports: {
             orderBy: { createdAt: "desc" },
             take: 1,
@@ -55,6 +95,8 @@ export default async function PublicLeaguePage({ params }: Props) {
               reportedByUserId: true,
               reportedWinnerTeamId: true,
               scoreText: true,
+              createdAt: true,
+              reportedBy: { select: { displayName: true } },
             },
           },
         },
@@ -67,11 +109,16 @@ export default async function PublicLeaguePage({ params }: Props) {
   const viewerId = session?.user?.id ?? null;
   const isOrganizer = viewerId === league.organizerId;
 
-  // Find league winner if completed.
+  const captainTeam = viewerId
+    ? league.teams.find((t) => t.captainUserId === viewerId)
+    : null;
+  // DRAFT pages are 404'd above, so this branch only handles OPEN.
+  const canLeave = captainTeam && league.state === "OPEN";
+
   const finalMatch =
     league.matches.length > 0
       ? league.matches.reduce((acc, m) =>
-          m.round > acc.round ? m : acc,
+        m.round > acc.round ? m : acc,
         league.matches[0])
       : null;
   const winnerTeam =
@@ -81,6 +128,30 @@ export default async function PublicLeaguePage({ params }: Props) {
 
   const showBracket =
     league.state === "IN_PROGRESS" || league.state === "COMPLETED";
+
+  // Match data for matches-tab (serializable shape with iso dates).
+  const matchesForTab = league.matches.map((m) => ({
+    id: m.id,
+    round: m.round,
+    bracketPosition: m.bracketPosition,
+    status: m.status,
+    teamAId: m.teamAId,
+    teamBId: m.teamBId,
+    winnerTeamId: m.winnerTeamId,
+    confirmedAt: m.confirmedAt ? m.confirmedAt.toISOString() : null,
+    disputedAt: m.disputedAt ? m.disputedAt.toISOString() : null,
+    teamA: m.teamA,
+    teamB: m.teamB,
+    resolvedBy: m.resolvedBy,
+    disputedBy: m.disputedBy,
+    reports: m.reports.map((r) => ({
+      reportedByUserId: r.reportedByUserId,
+      reportedWinnerTeamId: r.reportedWinnerTeamId,
+      scoreText: r.scoreText,
+      createdAt: r.createdAt.toISOString(),
+      reportedBy: r.reportedBy,
+    })),
+  }));
 
   return (
     <>
@@ -101,6 +172,29 @@ export default async function PublicLeaguePage({ params }: Props) {
         <p className="mt-2 text-sm text-foreground-subtle">
           Organized by {league.organizer.displayName}
         </p>
+
+        {captainTeam && (
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-5 py-4">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                Your team
+              </p>
+              <p className="mt-1 font-semibold">{captainTeam.name}</p>
+            </div>
+            {canLeave && (
+              <form action={leaveTeamAction}>
+                <input
+                  type="hidden"
+                  name="teamId"
+                  value={captainTeam.id}
+                />
+                <Button type="submit" size="sm" variant="ghost">
+                  Leave team
+                </Button>
+              </form>
+            )}
+          </div>
+        )}
 
         {winnerTeam && (
           <div className="mt-6 rounded-lg border border-success/40 bg-success/5 px-5 py-4">
@@ -234,7 +328,7 @@ export default async function PublicLeaguePage({ params }: Props) {
             </TabsContent>
 
             <TabsContent value="matches" className="mt-6">
-              <MatchesTab matches={league.matches} viewerId={viewerId} />
+              <MatchesTab matches={matchesForTab} viewerId={viewerId} />
             </TabsContent>
           </Tabs>
         </div>

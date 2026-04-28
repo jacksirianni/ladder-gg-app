@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import type { PaymentStatus } from "@prisma/client";
+import type { LeagueState, PaymentStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,14 @@ import {
 } from "@/lib/transitions/league";
 import {
   cancelLeagueAction,
+  duplicateLeagueAction,
   publishLeagueAction,
+  removeTeamAction,
   resolveDisputeAction,
   startLeagueAction,
   updateTeamPaymentStatusAction,
 } from "./actions";
+import { EditLeagueButton } from "./edit-modal";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -49,6 +52,128 @@ const paymentLabel: Record<PaymentStatus, string> = {
   WAIVED: "Waived",
   REFUNDED: "Refunded",
 };
+
+type ChecklistStatus = "done" | "current" | "pending";
+
+type ChecklistItem = {
+  id: string;
+  label: string;
+  status: ChecklistStatus;
+  hidden?: boolean;
+};
+
+function buildChecklist(args: {
+  state: LeagueState;
+  teamCount: number;
+  eligibleCount: number;
+  disputedCount: number;
+}): ChecklistItem[] {
+  const { state, teamCount, eligibleCount, disputedCount } = args;
+  const items: ChecklistItem[] = [];
+
+  // 1. Publish
+  items.push({
+    id: "publish",
+    label: "Publish league",
+    status:
+      state === "DRAFT"
+        ? "current"
+        : state === "CANCELLED"
+          ? "pending"
+          : "done",
+  });
+
+  // 2. Invite captains
+  items.push({
+    id: "invite",
+    label: "Invite captains",
+    status:
+      teamCount > 0
+        ? "done"
+        : state === "OPEN"
+          ? "current"
+          : "pending",
+    hidden: state === "DRAFT" || state === "CANCELLED",
+  });
+
+  // 3. Mark teams paid or waived
+  items.push({
+    id: "mark",
+    label: "Mark teams paid or waived",
+    status:
+      state === "IN_PROGRESS" || state === "COMPLETED"
+        ? "done"
+        : eligibleCount >= 2
+          ? "done"
+          : state === "OPEN" && teamCount > 0
+            ? "current"
+            : "pending",
+    hidden:
+      state === "DRAFT" || state === "CANCELLED" || teamCount === 0,
+  });
+
+  // 4. Start league
+  items.push({
+    id: "start",
+    label: "Start league",
+    status:
+      state === "IN_PROGRESS" || state === "COMPLETED"
+        ? "done"
+        : state === "OPEN" && eligibleCount >= 2
+          ? "current"
+          : "pending",
+    hidden: state === "DRAFT" || state === "CANCELLED",
+  });
+
+  // 5. Resolve disputes (only when there are disputes)
+  if (disputedCount > 0) {
+    items.push({
+      id: "disputes",
+      label: `Resolve ${disputedCount} dispute${disputedCount === 1 ? "" : "s"}`,
+      status: "current",
+    });
+  }
+
+  // 6. League completed
+  items.push({
+    id: "complete",
+    label: "League completed",
+    status: state === "COMPLETED" ? "done" : "pending",
+    hidden: state === "DRAFT" || state === "CANCELLED",
+  });
+
+  return items.filter((i) => !i.hidden);
+}
+
+function ChecklistDot({ status }: { status: ChecklistStatus }) {
+  if (status === "done") {
+    return (
+      <span
+        aria-hidden
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success text-[10px] font-bold text-success-foreground"
+      >
+        ✓
+      </span>
+    );
+  }
+  if (status === "current") {
+    return (
+      <span
+        aria-hidden
+        className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center"
+      >
+        <span className="absolute inset-0 animate-ping rounded-full bg-primary/40" />
+        <span className="relative h-2.5 w-2.5 rounded-full bg-primary" />
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-4 w-4 shrink-0 rounded-full border border-border bg-surface"
+    />
+  );
+}
 
 export default async function ManageLeaguePage({ params }: Props) {
   const { slug } = await params;
@@ -93,6 +218,7 @@ export default async function ManageLeaguePage({ params }: Props) {
   const host = h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "http";
   const inviteUrl = `${proto}://${host}/leagues/${league.slug}/join?token=${league.inviteToken}`;
+  const publicUrl = `${proto}://${host}/leagues/${league.slug}`;
 
   const paidTeams = league.teams.filter(
     (t) => t.paymentStatus === "PAID",
@@ -103,6 +229,17 @@ export default async function ManageLeaguePage({ params }: Props) {
     (t) => t.paymentStatus === "PAID" || t.paymentStatus === "WAIVED",
   ).length;
   const canStart = league.state === "OPEN" && eligibleCount >= 2;
+
+  const canEdit = league.state === "DRAFT" || league.state === "OPEN";
+  const canRemoveTeams = canEdit;
+
+  const checklist = buildChecklist({
+    state: league.state,
+    teamCount: league.teams.length,
+    eligibleCount,
+    disputedCount: disputedMatches.length,
+  });
+  const currentItem = checklist.find((i) => i.status === "current");
 
   return (
     <>
@@ -120,6 +257,49 @@ export default async function ManageLeaguePage({ params }: Props) {
         {league.description && (
           <p className="mt-2 text-foreground-muted">{league.description}</p>
         )}
+
+        {/* v1.1 Checklist */}
+        <section className="mt-8">
+          <Card>
+            {currentItem ? (
+              <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+                <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                  Next step
+                </p>
+                <p className="text-sm font-medium text-primary">
+                  {currentItem.label}
+                </p>
+              </div>
+            ) : (
+              <div className="mb-4">
+                <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                  Status
+                </p>
+              </div>
+            )}
+            <ul className="flex flex-col gap-2">
+              {checklist.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-center gap-3 text-sm"
+                >
+                  <ChecklistDot status={item.status} />
+                  <span
+                    className={
+                      item.status === "current"
+                        ? "font-medium text-foreground"
+                        : item.status === "done"
+                          ? "text-foreground-muted line-through decoration-foreground-subtle/40"
+                          : "text-foreground-muted"
+                    }
+                  >
+                    {item.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </section>
 
         <section className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
@@ -153,16 +333,51 @@ export default async function ManageLeaguePage({ params }: Props) {
           </Card>
         </section>
 
-        <section className="mt-10">
-          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-            Invite link
-          </h2>
-          <p className="mt-2 text-sm text-foreground-muted">
-            Share with your captains. Anyone with the link can register a team.
-          </p>
-          <div className="mt-4">
-            <InviteLinkBox url={inviteUrl} />
+        {canEdit && (
+          <section className="mt-6">
+            <EditLeagueButton
+              league={{
+                id: league.id,
+                description: league.description,
+                game: league.game,
+                teamSize: league.teamSize,
+                maxTeams: league.maxTeams,
+                buyInCents: league.buyInCents,
+                payoutPreset: league.payoutPreset,
+                paymentInstructions: league.paymentInstructions,
+                prizeNotes: league.prizeNotes,
+              }}
+              teamCount={league.teams.length}
+            />
+          </section>
+        )}
+
+        <section className="mt-10 grid gap-6 md:grid-cols-2">
+          <div>
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              Invite link
+            </h2>
+            <p className="mt-2 text-sm text-foreground-muted">
+              For captains. Anyone with this link can register a team.
+            </p>
+            <div className="mt-4">
+              <InviteLinkBox url={inviteUrl} />
+            </div>
           </div>
+
+          {league.state !== "DRAFT" && (
+            <div>
+              <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                Public link
+              </h2>
+              <p className="mt-2 text-sm text-foreground-muted">
+                For viewers. Anyone can see the bracket, teams, and results.
+              </p>
+              <div className="mt-4">
+                <InviteLinkBox url={publicUrl} />
+              </div>
+            </div>
+          )}
         </section>
 
         {(league.paymentInstructions || league.prizeNotes) && (
@@ -239,28 +454,47 @@ export default async function ManageLeaguePage({ params }: Props) {
                       </span>
                     </p>
                   </div>
-                  {league.state === "OPEN" && (
-                    <form
-                      action={updateTeamPaymentStatusAction}
-                      className="flex flex-wrap items-center gap-2"
-                    >
-                      <input type="hidden" name="teamId" value={team.id} />
-                      <Select
-                        name="paymentStatus"
-                        defaultValue={team.paymentStatus}
-                        className="w-auto"
-                        aria-label={`Payment status for ${team.name}`}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {league.state === "OPEN" && (
+                      <form
+                        action={updateTeamPaymentStatusAction}
+                        className="flex flex-wrap items-center gap-2"
                       >
-                        <option value="PENDING">Pending</option>
-                        <option value="PAID">Paid</option>
-                        <option value="WAIVED">Waived</option>
-                        <option value="REFUNDED">Refunded</option>
-                      </Select>
-                      <Button type="submit" size="sm" variant="secondary">
-                        Update
-                      </Button>
-                    </form>
-                  )}
+                        <input type="hidden" name="teamId" value={team.id} />
+                        <Select
+                          name="paymentStatus"
+                          defaultValue={team.paymentStatus}
+                          className="w-auto"
+                          aria-label={`Payment status for ${team.name}`}
+                        >
+                          <option value="PENDING">Pending</option>
+                          <option value="PAID">Paid</option>
+                          <option value="WAIVED">Waived</option>
+                          <option value="REFUNDED">Refunded</option>
+                        </Select>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          variant="secondary"
+                        >
+                          Update
+                        </Button>
+                      </form>
+                    )}
+                    {canRemoveTeams && (
+                      <form action={removeTeamAction}>
+                        <input type="hidden" name="teamId" value={team.id} />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Remove ${team.name}`}
+                        >
+                          Remove
+                        </Button>
+                      </form>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -375,6 +609,12 @@ export default async function ManageLeaguePage({ params }: Props) {
               {eligibleCount === 1 && " 1 eligible so far."}
             </p>
           )}
+          <form action={duplicateLeagueAction}>
+            <input type="hidden" name="leagueId" value={league.id} />
+            <Button type="submit" variant="secondary">
+              Duplicate league
+            </Button>
+          </form>
           {canCancelLeague(league) && (
             <form action={cancelLeagueAction}>
               <input type="hidden" name="leagueId" value={league.id} />

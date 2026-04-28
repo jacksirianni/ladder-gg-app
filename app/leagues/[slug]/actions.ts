@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { submitMatchReportSchema } from "@/lib/validators/match";
@@ -123,7 +124,6 @@ export async function confirmMatchAction(
 
     const winnerTeamId = latestReport.reportedWinnerTeamId;
 
-    // Mark this match CONFIRMED.
     await tx.match.update({
       where: { id: match.id },
       data: {
@@ -134,7 +134,6 @@ export async function confirmMatchAction(
       },
     });
 
-    // Advance winner to next match (round + 1, position = ceil(currentPosition / 2)).
     const nextRound = match.round + 1;
     const nextPosition = Math.ceil(match.bracketPosition / 2);
 
@@ -149,7 +148,6 @@ export async function confirmMatchAction(
     });
 
     if (!nextMatch) {
-      // No next match — this was the final. Complete the league.
       await tx.league.update({
         where: { id: match.leagueId },
         data: {
@@ -160,7 +158,6 @@ export async function confirmMatchAction(
       return match.league.slug;
     }
 
-    // Odd current position -> teamA slot of next match. Even -> teamB slot.
     const isTeamASlot = match.bracketPosition % 2 === 1;
     const updateData: {
       teamAId?: string;
@@ -236,10 +233,44 @@ export async function disputeMatchAction(
 
   await prisma.match.update({
     where: { id: match.id },
-    data: { status: "DISPUTED" },
+    data: {
+      status: "DISPUTED",
+      disputedAt: new Date(),
+      disputedByUserId: user.id,
+    },
   });
 
   revalidatePath(`/leagues/${match.league.slug}`);
   revalidatePath(`/leagues/${match.league.slug}/manage`);
   return {};
+}
+
+// v1.1: captain leaves their team — DRAFT or OPEN only.
+export async function leaveTeamAction(formData: FormData) {
+  const user = await requireAuth();
+  const teamId = String(formData.get("teamId") ?? "");
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    include: {
+      league: { select: { id: true, slug: true, state: true } },
+    },
+  });
+  if (!team) {
+    throw new Error("Team not found.");
+  }
+  if (team.captainUserId !== user.id) {
+    throw new Error("You are not the captain of this team.");
+  }
+  if (team.league.state !== "DRAFT" && team.league.state !== "OPEN") {
+    throw new Error("You can only leave a team before the league starts.");
+  }
+
+  await prisma.team.delete({ where: { id: team.id } });
+
+  revalidatePath(`/leagues/${team.league.slug}`);
+  revalidatePath(`/leagues/${team.league.slug}/manage`);
+  revalidatePath("/dashboard");
+
+  redirect("/dashboard");
 }

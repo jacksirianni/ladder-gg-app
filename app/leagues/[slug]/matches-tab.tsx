@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { MatchRow } from "@/components/match-row";
 import { MatchActionModal } from "@/components/match-action-modal";
 
-type Match = {
+export type MatchForTab = {
   id: string;
   round: number;
   bracketPosition: number;
@@ -14,17 +14,23 @@ type Match = {
   teamAId: string | null;
   teamBId: string | null;
   winnerTeamId: string | null;
+  confirmedAt: string | null;
+  disputedAt: string | null;
   teamA: { id: string; name: string; captainUserId: string } | null;
   teamB: { id: string; name: string; captainUserId: string } | null;
+  resolvedBy: { displayName: string } | null;
+  disputedBy: { displayName: string } | null;
   reports: {
     reportedByUserId: string;
     reportedWinnerTeamId: string;
     scoreText: string | null;
+    createdAt: string;
+    reportedBy: { displayName: string };
   }[];
 };
 
 type Props = {
-  matches: Match[];
+  matches: MatchForTab[];
   viewerId: string | null;
 };
 

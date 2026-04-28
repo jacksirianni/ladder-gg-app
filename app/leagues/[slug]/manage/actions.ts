@@ -2,6 +2,7 @@
 
 import type { PaymentStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { requireLeagueOrganizer } from "@/lib/permissions/league";
@@ -10,7 +11,14 @@ import {
   canPublishLeague,
 } from "@/lib/transitions/league";
 import { generateBracketMatches } from "@/lib/bracket/generate";
-import { resolveDisputeSchema } from "@/lib/validators/match";
+import { generateInviteToken } from "@/lib/token";
+import { generateSlug } from "@/lib/slug";
+import {
+  resolveDisputeSchema,
+  submitMatchReportSchema as _unused,
+} from "@/lib/validators/match";
+import { updateLeagueSchema } from "@/lib/validators/league";
+void _unused;
 
 const VALID_PAYMENT_STATUSES = new Set<PaymentStatus>([
   "PENDING",
@@ -18,6 +26,12 @@ const VALID_PAYMENT_STATUSES = new Set<PaymentStatus>([
   "WAIVED",
   "REFUNDED",
 ]);
+
+export type UpdateLeagueActionState = {
+  error?: string;
+  success?: boolean;
+  fieldErrors?: Record<string, string>;
+};
 
 export async function publishLeagueAction(formData: FormData) {
   const user = await requireAuth();
@@ -186,7 +200,6 @@ export async function resolveDisputeAction(formData: FormData) {
       throw new Error("Winner must be one of the two teams in this match.");
     }
 
-    // Mark match ORGANIZER_DECIDED.
     await tx.match.update({
       where: { id: match.id },
       data: {
@@ -197,7 +210,6 @@ export async function resolveDisputeAction(formData: FormData) {
       },
     });
 
-    // Advance winner — same logic as confirmMatchAction.
     const nextRound = match.round + 1;
     const nextPosition = Math.ceil(match.bracketPosition / 2);
 
@@ -212,7 +224,6 @@ export async function resolveDisputeAction(formData: FormData) {
     });
 
     if (!nextMatch) {
-      // Final — complete league.
       await tx.league.update({
         where: { id: match.leagueId },
         data: {
@@ -251,5 +262,156 @@ export async function resolveDisputeAction(formData: FormData) {
 
   revalidatePath(`/leagues/${slug}`);
   revalidatePath(`/leagues/${slug}/manage`);
+  revalidatePath("/dashboard");
+}
+
+// v1.1: duplicate league — copy settings into a new DRAFT league.
+export async function duplicateLeagueAction(formData: FormData) {
+  const user = await requireAuth();
+  const leagueId = String(formData.get("leagueId") ?? "");
+
+  const source = await requireLeagueOrganizer(leagueId, user.id);
+
+  let slug = generateSlug(`${source.name} copy`);
+  for (let i = 0; i < 5; i++) {
+    const existing = await prisma.league.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!existing) break;
+    slug = generateSlug(`${source.name} copy`);
+  }
+
+  const created = await prisma.league.create({
+    data: {
+      name: `${source.name} (copy)`,
+      description: source.description,
+      game: source.game,
+      teamSize: source.teamSize,
+      maxTeams: source.maxTeams,
+      buyInCents: source.buyInCents,
+      payoutPreset: source.payoutPreset,
+      paymentInstructions: source.paymentInstructions,
+      prizeNotes: source.prizeNotes,
+      slug,
+      inviteToken: generateInviteToken(),
+      organizerId: user.id,
+    },
+    select: { slug: true },
+  });
+
+  redirect(`/leagues/${created.slug}/manage`);
+}
+
+// v1.1: edit league settings — DRAFT or OPEN only.
+export async function updateLeagueAction(
+  _prev: UpdateLeagueActionState,
+  formData: FormData,
+): Promise<UpdateLeagueActionState> {
+  const user = await requireAuth();
+  const leagueId = String(formData.get("leagueId") ?? "");
+
+  const league = await prisma.league.findUnique({
+    where: { id: leagueId },
+    include: { _count: { select: { teams: true } } },
+  });
+  if (!league) return { error: "League not found." };
+  if (league.organizerId !== user.id) {
+    return { error: "You are not the organizer of this league." };
+  }
+  if (league.state !== "DRAFT" && league.state !== "OPEN") {
+    return {
+      error: "League settings can only be edited before it starts.",
+    };
+  }
+
+  const parsed = updateLeagueSchema.safeParse({
+    description: String(formData.get("description") ?? ""),
+    game: String(formData.get("game") ?? ""),
+    teamSize: String(formData.get("teamSize") ?? ""),
+    maxTeams: String(formData.get("maxTeams") ?? ""),
+    buyInDollars: String(formData.get("buyInDollars") ?? ""),
+    payoutPreset: String(formData.get("payoutPreset") ?? "WTA"),
+    paymentInstructions: String(formData.get("paymentInstructions") ?? ""),
+    prizeNotes: String(formData.get("prizeNotes") ?? ""),
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const path = issue.path[0];
+      if (typeof path === "string" && !fieldErrors[path]) {
+        fieldErrors[path] = issue.message;
+      }
+    }
+    return { fieldErrors };
+  }
+
+  const teamCount = league._count.teams;
+
+  if (parsed.data.teamSize !== league.teamSize && teamCount > 0) {
+    return {
+      fieldErrors: {
+        teamSize: "Team size cannot change once teams have registered.",
+      },
+    };
+  }
+
+  if (parsed.data.maxTeams < teamCount) {
+    return {
+      fieldErrors: {
+        maxTeams: `Cannot set max teams below the current count (${teamCount}).`,
+      },
+    };
+  }
+
+  const buyInCents = Math.round(parsed.data.buyInDollars * 100);
+
+  await prisma.league.update({
+    where: { id: league.id },
+    data: {
+      description: parsed.data.description ?? null,
+      game: parsed.data.game,
+      teamSize: parsed.data.teamSize,
+      maxTeams: parsed.data.maxTeams,
+      buyInCents,
+      payoutPreset: parsed.data.payoutPreset,
+      paymentInstructions: parsed.data.paymentInstructions ?? null,
+      prizeNotes: parsed.data.prizeNotes ?? null,
+    },
+  });
+
+  revalidatePath(`/leagues/${league.slug}/manage`);
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+// v1.1: organizer removes a team — DRAFT or OPEN only.
+export async function removeTeamAction(formData: FormData) {
+  const user = await requireAuth();
+  const teamId = String(formData.get("teamId") ?? "");
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    include: {
+      league: {
+        select: { id: true, slug: true, organizerId: true, state: true },
+      },
+    },
+  });
+  if (!team) {
+    throw new Error("Team not found.");
+  }
+  if (team.league.organizerId !== user.id) {
+    throw new Error("You are not the organizer of this league.");
+  }
+  if (team.league.state !== "DRAFT" && team.league.state !== "OPEN") {
+    throw new Error("Teams can only be removed before the league starts.");
+  }
+
+  await prisma.team.delete({ where: { id: team.id } });
+
+  revalidatePath(`/leagues/${team.league.slug}/manage`);
+  revalidatePath(`/leagues/${team.league.slug}`);
   revalidatePath("/dashboard");
 }
