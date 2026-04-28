@@ -13,12 +13,8 @@ import {
 import { generateBracketMatches } from "@/lib/bracket/generate";
 import { generateInviteToken } from "@/lib/token";
 import { generateSlug } from "@/lib/slug";
-import {
-  resolveDisputeSchema,
-  submitMatchReportSchema as _unused,
-} from "@/lib/validators/match";
+import { resolveDisputeSchema } from "@/lib/validators/match";
 import { updateLeagueSchema } from "@/lib/validators/league";
-void _unused;
 
 const VALID_PAYMENT_STATUSES = new Set<PaymentStatus>([
   "PENDING",
@@ -108,6 +104,34 @@ export async function updateTeamPaymentStatusAction(formData: FormData) {
 
   revalidatePath(`/leagues/${team.league.slug}/manage`);
   revalidatePath(`/leagues/${team.league.slug}`);
+  revalidatePath("/dashboard");
+}
+
+// v1.2: bulk-update PENDING teams to PAID or WAIVED.
+export async function bulkUpdatePaymentStatusAction(formData: FormData) {
+  const user = await requireAuth();
+  const leagueId = String(formData.get("leagueId") ?? "");
+  const status = String(formData.get("paymentStatus") ?? "") as PaymentStatus;
+
+  if (status !== "PAID" && status !== "WAIVED") {
+    throw new Error("Bulk update only supports PAID or WAIVED.");
+  }
+
+  const league = await requireLeagueOrganizer(leagueId, user.id);
+  if (league.state !== "OPEN") {
+    throw new Error("Bulk update only available while the league is OPEN.");
+  }
+
+  await prisma.team.updateMany({
+    where: {
+      leagueId: league.id,
+      paymentStatus: "PENDING",
+    },
+    data: { paymentStatus: status },
+  });
+
+  revalidatePath(`/leagues/${league.slug}/manage`);
+  revalidatePath(`/leagues/${league.slug}`);
   revalidatePath("/dashboard");
 }
 
@@ -265,7 +289,6 @@ export async function resolveDisputeAction(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-// v1.1: duplicate league — copy settings into a new DRAFT league.
 export async function duplicateLeagueAction(formData: FormData) {
   const user = await requireAuth();
   const leagueId = String(formData.get("leagueId") ?? "");
@@ -303,7 +326,6 @@ export async function duplicateLeagueAction(formData: FormData) {
   redirect(`/leagues/${created.slug}/manage`);
 }
 
-// v1.1: edit league settings — DRAFT or OPEN only.
 export async function updateLeagueAction(
   _prev: UpdateLeagueActionState,
   formData: FormData,
@@ -386,7 +408,6 @@ export async function updateLeagueAction(
   return { success: true };
 }
 
-// v1.1: organizer removes a team — DRAFT or OPEN only.
 export async function removeTeamAction(formData: FormData) {
   const user = await requireAuth();
   const teamId = String(formData.get("teamId") ?? "");

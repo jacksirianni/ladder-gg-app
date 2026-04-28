@@ -5,9 +5,16 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { submitMatchReportSchema } from "@/lib/validators/match";
+import { createTeamSchema } from "@/lib/validators/team";
 
 export type MatchActionState = {
   error?: string;
+  fieldErrors?: Record<string, string>;
+};
+
+export type TeamActionState = {
+  error?: string;
+  success?: boolean;
   fieldErrors?: Record<string, string>;
 };
 
@@ -245,7 +252,6 @@ export async function disputeMatchAction(
   return {};
 }
 
-// v1.1: captain leaves their team — DRAFT or OPEN only.
 export async function leaveTeamAction(formData: FormData) {
   const user = await requireAuth();
   const teamId = String(formData.get("teamId") ?? "");
@@ -273,4 +279,68 @@ export async function leaveTeamAction(formData: FormData) {
   revalidatePath("/dashboard");
 
   redirect("/dashboard");
+}
+
+// v1.2: captain edits team name + roster while DRAFT or OPEN.
+export async function updateTeamAction(
+  _prev: TeamActionState,
+  formData: FormData,
+): Promise<TeamActionState> {
+  const user = await requireAuth();
+  const teamId = String(formData.get("teamId") ?? "");
+  if (!teamId) return { error: "Team id required." };
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    include: {
+      league: {
+        select: { id: true, slug: true, state: true, teamSize: true },
+      },
+    },
+  });
+  if (!team) return { error: "Team not found." };
+  if (team.captainUserId !== user.id) {
+    return { error: "You are not the captain of this team." };
+  }
+  if (team.league.state !== "DRAFT" && team.league.state !== "OPEN") {
+    return {
+      error: "Teams can only be edited before the league starts.",
+    };
+  }
+
+  const rosterMembers = formData.getAll("rosterMembers").map(String);
+
+  const parsed = createTeamSchema(team.league.teamSize).safeParse({
+    name: String(formData.get("name") ?? ""),
+    rosterMembers,
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = issue.path.join(".");
+      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+    }
+    return { fieldErrors };
+  }
+
+  await prisma.$transaction([
+    prisma.team.update({
+      where: { id: team.id },
+      data: { name: parsed.data.name },
+    }),
+    prisma.teamRosterEntry.deleteMany({ where: { teamId: team.id } }),
+    prisma.teamRosterEntry.createMany({
+      data: parsed.data.rosterMembers.map((displayName, position) => ({
+        teamId: team.id,
+        displayName,
+        position,
+      })),
+    }),
+  ]);
+
+  revalidatePath(`/leagues/${team.league.slug}`);
+  revalidatePath(`/leagues/${team.league.slug}/manage`);
+  revalidatePath("/dashboard");
+
+  return { success: true };
 }

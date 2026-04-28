@@ -8,7 +8,7 @@ import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
 
 const paymentLabel: Record<PaymentStatus, string> = {
-  PENDING: "Pending",
+  PENDING: "Payment pending",
   PAID: "Paid",
   WAIVED: "Waived",
   REFUNDED: "Refunded",
@@ -41,10 +41,52 @@ export default async function DashboardPage() {
     }),
   ]);
 
+  // v1.2: count matches the captain needs to act on, grouped by league.
+  const [awaitingReport, awaitingConfirmRaw] = await Promise.all([
+    prisma.match.findMany({
+      where: {
+        status: "AWAITING_REPORT",
+        OR: [
+          { teamA: { captainUserId: user.id } },
+          { teamB: { captainUserId: user.id } },
+        ],
+      },
+      select: { id: true, leagueId: true },
+    }),
+    prisma.match.findMany({
+      where: {
+        status: "AWAITING_CONFIRM",
+        OR: [
+          { teamA: { captainUserId: user.id } },
+          { teamB: { captainUserId: user.id } },
+        ],
+      },
+      select: {
+        id: true,
+        leagueId: true,
+        reports: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { reportedByUserId: true },
+        },
+      },
+    }),
+  ]);
+  // Confirm-pending only counts when the *opponent* reported.
+  const awaitingConfirm = awaitingConfirmRaw.filter(
+    (m) => m.reports[0] && m.reports[0].reportedByUserId !== user.id,
+  );
+
+  const actionsByLeague = new Map<string, number>();
+  for (const m of awaitingReport) {
+    actionsByLeague.set(m.leagueId, (actionsByLeague.get(m.leagueId) ?? 0) + 1);
+  }
+  for (const m of awaitingConfirm) {
+    actionsByLeague.set(m.leagueId, (actionsByLeague.get(m.leagueId) ?? 0) + 1);
+  }
+
   const hasAnything = organized.length > 0 || captained.length > 0;
 
-  // Active = OPEN or IN_PROGRESS, deduped across both roles
-  // (a user can be organizer AND captain in the same league).
   const activeIds = new Set<string>();
   for (const l of organized) {
     if (ACTIVE_STATES.has(l.state)) activeIds.add(l.id);
@@ -152,44 +194,55 @@ export default async function DashboardPage() {
                   count={captained.length}
                 />
                 <ul className="mt-5 grid gap-3 md:grid-cols-2">
-                  {captained.map((team) => (
-                    <li key={team.id}>
-                      <Link
-                        href={`/leagues/${team.league.slug}`}
-                        className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      >
-                        <article className="rounded-lg border border-border bg-surface p-5 transition-colors hover:border-zinc-600 hover:bg-surface-elevated">
-                          <div className="flex items-start justify-between gap-3">
-                            <LeagueStateBadge state={team.league.state} />
-                            <span className="font-mono text-xs text-foreground-subtle">
-                              {team.league.game}
-                            </span>
-                          </div>
-                          <h3 className="mt-5 text-xl font-semibold leading-tight tracking-tight">
-                            {team.league.name}
-                          </h3>
-                          <p className="mt-1 text-xs text-foreground-muted">
-                            Captain of{" "}
-                            <span className="text-foreground">{team.name}</span>
-                          </p>
-                          <dl className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-foreground-muted">
-                            <Stat
-                              label="Entry"
-                              value={`$${(team.league.buyInCents / 100).toFixed(2)}`}
-                            />
-                            <Stat
-                              label="Status"
-                              value={paymentLabel[team.paymentStatus]}
-                            />
-                            <Stat
-                              label="Teams"
-                              value={`${team.league._count.teams} / ${team.league.maxTeams}`}
-                            />
-                          </dl>
-                        </article>
-                      </Link>
-                    </li>
-                  ))}
+                  {captained.map((team) => {
+                    const actionCount =
+                      actionsByLeague.get(team.league.id) ?? 0;
+                    return (
+                      <li key={team.id}>
+                        <Link
+                          href={`/leagues/${team.league.slug}`}
+                          className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          <article className="rounded-lg border border-border bg-surface p-5 transition-colors hover:border-zinc-600 hover:bg-surface-elevated">
+                            <div className="flex items-start justify-between gap-3">
+                              <LeagueStateBadge state={team.league.state} />
+                              {actionCount > 0 ? (
+                                <span className="font-mono text-xs uppercase tracking-wider text-warning">
+                                  {actionCount} action
+                                  {actionCount === 1 ? "" : "s"} needed
+                                </span>
+                              ) : (
+                                <span className="font-mono text-xs text-foreground-subtle">
+                                  {paymentLabel[team.paymentStatus]}
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="mt-5 text-xl font-semibold leading-tight tracking-tight">
+                              {team.league.name}
+                            </h3>
+                            <p className="mt-1 text-xs text-foreground-muted">
+                              Captain of{" "}
+                              <span className="text-foreground">{team.name}</span>
+                            </p>
+                            <dl className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-foreground-muted">
+                              <Stat
+                                label="Entry"
+                                value={`$${(team.league.buyInCents / 100).toFixed(2)}`}
+                              />
+                              <Stat
+                                label="Status"
+                                value={paymentLabel[team.paymentStatus]}
+                              />
+                              <Stat
+                                label="Teams"
+                                value={`${team.league._count.teams} / ${team.league.maxTeams}`}
+                              />
+                            </dl>
+                          </article>
+                        </Link>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             )}

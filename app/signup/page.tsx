@@ -1,12 +1,20 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { safeInternalPath } from "@/lib/auth/redirect";
 import { SignupForm } from "./signup-form";
 
-export default async function SignupPage() {
+type Props = {
+  searchParams: Promise<{ redirectTo?: string }>;
+};
+
+export default async function SignupPage({ searchParams }: Props) {
+  const params = await searchParams;
   const session = await auth();
+  const requestedRedirect = safeInternalPath(params.redirectTo);
+
   if (session?.user) {
-    redirect("/dashboard");
+    redirect(requestedRedirect ?? "/dashboard");
   }
 
   return (
@@ -26,7 +34,7 @@ export default async function SignupPage() {
       </p>
 
       <div className="mt-8">
-        <SignupForm />
+        <SignupForm redirectTo={requestedRedirect ?? undefined} />
       </div>
     </main>
   );

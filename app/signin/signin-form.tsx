@@ -9,14 +9,25 @@ import { signinAction, type SigninActionState } from "./actions";
 
 const initialState: SigninActionState = {};
 
-export function SigninForm() {
+type Props = {
+  redirectTo?: string;
+};
+
+export function SigninForm({ redirectTo }: Props) {
   const [state, formAction, pending] = useActionState(
     signinAction,
     initialState,
   );
 
+  const signupHref = redirectTo
+    ? `/signup?redirectTo=${encodeURIComponent(redirectTo)}`
+    : "/signup";
+
   return (
     <form action={formAction} className="flex flex-col gap-5">
+      {redirectTo && (
+        <input type="hidden" name="redirectTo" value={redirectTo} />
+      )}
       <FormField label="Email" htmlFor="email" error={state.fieldErrors?.email}>
         <Input
           id="email"
@@ -52,7 +63,7 @@ export function SigninForm() {
       <p className="text-center text-sm text-foreground-muted">
         No account yet?{" "}
         <Link
-          href="/signup"
+          href={signupHref}
           className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           Sign up

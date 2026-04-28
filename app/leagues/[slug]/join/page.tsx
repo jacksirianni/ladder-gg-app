@@ -17,7 +17,9 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
 
   const session = await auth();
   if (!session?.user) {
-    redirect("/signin");
+    // v1.2: preserve invite link through auth so the captain lands back here.
+    const here = `/leagues/${slug}/join${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    redirect(`/signin?redirectTo=${encodeURIComponent(here)}`);
   }
 
   if (!token) notFound();
@@ -87,10 +89,14 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
     );
   }
 
+  const captainDisplayName =
+    session.user.name ?? session.user.email ?? "you";
+
   return (
     <>
       <SiteHeader />
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-12 md:px-12">
+        {/* v1.2: clearer header */}
         <div className="flex flex-wrap items-center gap-3">
           <LeagueStateBadge state={league.state} />
           <span className="font-mono text-xs text-foreground-subtle">
@@ -98,24 +104,47 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
           </span>
         </div>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">
-          Register your team
+          {league.name}
         </h1>
-        <p className="mt-2 text-foreground-muted">
-          Joining{" "}
-          <span className="text-foreground">{league.name}</span>. You will be
-          the captain.
+        {league.description && (
+          <p className="mt-2 text-foreground-muted">{league.description}</p>
+        )}
+        <p className="mt-2 font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+          {league._count.teams} of {league.maxTeams} teams registered
+          {" · "}
+          Entry ${(league.buyInCents / 100).toFixed(2)}
         </p>
 
-        <div className="mt-8">
+        {/* v1.2: explicit captain identity panel */}
+        <div className="mt-8 rounded-lg border border-border bg-surface px-5 py-4">
+          <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            You are joining as
+          </p>
+          <p className="mt-1 text-base font-semibold">
+            {captainDisplayName}{" "}
+            <span className="text-foreground-muted">(captain)</span>
+          </p>
+          <p className="mt-1 text-xs text-foreground-subtle">
+            You will be the only person from your team who can report or
+            confirm match results.
+          </p>
+        </div>
+
+        <h2 className="mt-10 text-lg font-semibold">Register your team</h2>
+        <p className="mt-1 text-sm text-foreground-muted">
+          Set the team name and add{" "}
+          {Math.max(0, league.teamSize - 1)} other player
+          {league.teamSize - 1 === 1 ? "" : "s"}.
+        </p>
+
+        <div className="mt-6">
           <JoinForm
             slug={slug}
             token={token}
             teamSize={league.teamSize}
             buyInCents={league.buyInCents}
             paymentInstructions={league.paymentInstructions}
-            captainDisplayName={
-              session.user.name ?? session.user.email ?? "you"
-            }
+            captainDisplayName={captainDisplayName}
           />
         </div>
       </main>

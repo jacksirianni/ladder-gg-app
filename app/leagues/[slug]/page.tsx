@@ -17,6 +17,7 @@ import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
 import { MatchesTab } from "./matches-tab";
 import { leaveTeamAction } from "./actions";
+import { EditTeamButton } from "./edit-team-modal";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -36,7 +37,6 @@ const stateLabel: Record<string, string> = {
   DRAFT: "Draft",
 };
 
-// v1.1: per-league OG / Twitter / page metadata.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const league = await prisma.league.findUnique({
@@ -56,7 +56,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: "website",
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title: league.name,
       description,
     },
@@ -112,8 +112,8 @@ export default async function PublicLeaguePage({ params }: Props) {
   const captainTeam = viewerId
     ? league.teams.find((t) => t.captainUserId === viewerId)
     : null;
-  // DRAFT pages are 404'd above, so this branch only handles OPEN.
   const canLeave = captainTeam && league.state === "OPEN";
+  const canEditTeam = captainTeam && league.state === "OPEN";
 
   const finalMatch =
     league.matches.length > 0
@@ -129,7 +129,6 @@ export default async function PublicLeaguePage({ params }: Props) {
   const showBracket =
     league.state === "IN_PROGRESS" || league.state === "COMPLETED";
 
-  // Match data for matches-tab (serializable shape with iso dates).
   const matchesForTab = league.matches.map((m) => ({
     id: m.id,
     round: m.round,
@@ -181,18 +180,33 @@ export default async function PublicLeaguePage({ params }: Props) {
               </p>
               <p className="mt-1 font-semibold">{captainTeam.name}</p>
             </div>
-            {canLeave && (
-              <form action={leaveTeamAction}>
-                <input
-                  type="hidden"
-                  name="teamId"
-                  value={captainTeam.id}
+            <div className="flex flex-wrap items-center gap-2">
+              {canEditTeam && (
+                <EditTeamButton
+                  team={{
+                    id: captainTeam.id,
+                    name: captainTeam.name,
+                    roster: captainTeam.roster.map((r) => ({
+                      displayName: r.displayName,
+                      position: r.position,
+                    })),
+                  }}
+                  teamSize={league.teamSize}
                 />
-                <Button type="submit" size="sm" variant="ghost">
-                  Leave team
-                </Button>
-              </form>
-            )}
+              )}
+              {canLeave && (
+                <form action={leaveTeamAction}>
+                  <input
+                    type="hidden"
+                    name="teamId"
+                    value={captainTeam.id}
+                  />
+                  <Button type="submit" size="sm" variant="ghost">
+                    Leave team
+                  </Button>
+                </form>
+              )}
+            </div>
           </div>
         )}
 

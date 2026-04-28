@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { CopyMessageBox } from "@/components/copy-message-box";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteHeader } from "@/components/site-header";
@@ -16,6 +17,7 @@ import {
   canPublishLeague,
 } from "@/lib/transitions/league";
 import {
+  bulkUpdatePaymentStatusAction,
   cancelLeagueAction,
   duplicateLeagueAction,
   publishLeagueAction,
@@ -71,7 +73,6 @@ function buildChecklist(args: {
   const { state, teamCount, eligibleCount, disputedCount } = args;
   const items: ChecklistItem[] = [];
 
-  // 1. Publish
   items.push({
     id: "publish",
     label: "Publish league",
@@ -83,7 +84,6 @@ function buildChecklist(args: {
           : "done",
   });
 
-  // 2. Invite captains
   items.push({
     id: "invite",
     label: "Invite captains",
@@ -96,7 +96,6 @@ function buildChecklist(args: {
     hidden: state === "DRAFT" || state === "CANCELLED",
   });
 
-  // 3. Mark teams paid or waived
   items.push({
     id: "mark",
     label: "Mark teams paid or waived",
@@ -112,7 +111,6 @@ function buildChecklist(args: {
       state === "DRAFT" || state === "CANCELLED" || teamCount === 0,
   });
 
-  // 4. Start league
   items.push({
     id: "start",
     label: "Start league",
@@ -125,7 +123,6 @@ function buildChecklist(args: {
     hidden: state === "DRAFT" || state === "CANCELLED",
   });
 
-  // 5. Resolve disputes (only when there are disputes)
   if (disputedCount > 0) {
     items.push({
       id: "disputes",
@@ -134,7 +131,6 @@ function buildChecklist(args: {
     });
   }
 
-  // 6. League completed
   items.push({
     id: "complete",
     label: "League completed",
@@ -220,8 +216,23 @@ export default async function ManageLeaguePage({ params }: Props) {
   const inviteUrl = `${proto}://${host}/leagues/${league.slug}/join?token=${league.inviteToken}`;
   const publicUrl = `${proto}://${host}/leagues/${league.slug}`;
 
+  // v1.2: friendly invite message captains can paste anywhere.
+  const entryFeeForMessage =
+    league.buyInCents > 0
+      ? `Entry: $${(league.buyInCents / 100).toFixed(2)}`
+      : "Free league";
+  const inviteMessage = [
+    `You're invited to ${league.name} on LADDER.gg.`,
+    `${league.game} · Team size ${league.teamSize} · ${entryFeeForMessage}`,
+    "",
+    `Register your team here: ${inviteUrl}`,
+  ].join("\n");
+
   const paidTeams = league.teams.filter(
     (t) => t.paymentStatus === "PAID",
+  ).length;
+  const pendingTeamsCount = league.teams.filter(
+    (t) => t.paymentStatus === "PENDING",
   ).length;
   const totalCollectedCents = paidTeams * league.buyInCents;
 
@@ -232,6 +243,7 @@ export default async function ManageLeaguePage({ params }: Props) {
 
   const canEdit = league.state === "DRAFT" || league.state === "OPEN";
   const canRemoveTeams = canEdit;
+  const canBulk = league.state === "OPEN" && pendingTeamsCount > 0;
 
   const checklist = buildChecklist({
     state: league.state,
@@ -258,7 +270,6 @@ export default async function ManageLeaguePage({ params }: Props) {
           <p className="mt-2 text-foreground-muted">{league.description}</p>
         )}
 
-        {/* v1.1 Checklist */}
         <section className="mt-8">
           <Card>
             {currentItem ? (
@@ -363,6 +374,12 @@ export default async function ManageLeaguePage({ params }: Props) {
             <div className="mt-4">
               <InviteLinkBox url={inviteUrl} />
             </div>
+            <div className="mt-3">
+              <CopyMessageBox
+                message={inviteMessage}
+                copyLabel="Copy invite message"
+              />
+            </div>
           </div>
 
           {league.state !== "DRAFT" && (
@@ -406,28 +423,50 @@ export default async function ManageLeaguePage({ params }: Props) {
         )}
 
         <section className="mt-10">
-          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-            Teams
-          </h2>
-          <p className="mt-2 text-sm text-foreground-muted">
-            {league.teams.length} of {league.maxTeams} registered
-            {league.buyInCents > 0 && (
-              <>
-                {" · "}
-                <span className="text-foreground">
-                  {paidTeams} paid · ${(totalCollectedCents / 100).toFixed(2)} collected
-                </span>
-              </>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                Teams
+              </h2>
+              <p className="mt-2 text-sm text-foreground-muted">
+                {league.teams.length} of {league.maxTeams} registered
+                {league.buyInCents > 0 && (
+                  <>
+                    {" · "}
+                    <span className="text-foreground">
+                      {paidTeams} paid · ${(totalCollectedCents / 100).toFixed(2)} collected
+                    </span>
+                  </>
+                )}
+                {league.state === "OPEN" && (
+                  <>
+                    {" · "}
+                    <span className="text-foreground">
+                      {eligibleCount} eligible to play
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+            {canBulk && (
+              <div className="flex flex-wrap gap-2">
+                <form action={bulkUpdatePaymentStatusAction}>
+                  <input type="hidden" name="leagueId" value={league.id} />
+                  <input type="hidden" name="paymentStatus" value="PAID" />
+                  <Button type="submit" size="sm" variant="secondary">
+                    Mark all pending as Paid ({pendingTeamsCount})
+                  </Button>
+                </form>
+                <form action={bulkUpdatePaymentStatusAction}>
+                  <input type="hidden" name="leagueId" value={league.id} />
+                  <input type="hidden" name="paymentStatus" value="WAIVED" />
+                  <Button type="submit" size="sm" variant="ghost">
+                    Mark all as Waived
+                  </Button>
+                </form>
+              </div>
             )}
-            {league.state === "OPEN" && (
-              <>
-                {" · "}
-                <span className="text-foreground">
-                  {eligibleCount} eligible to play
-                </span>
-              </>
-            )}
-          </p>
+          </div>
 
           {league.teams.length === 0 ? (
             <p className="mt-4 text-sm text-foreground-subtle">

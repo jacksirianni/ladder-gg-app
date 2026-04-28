@@ -12,14 +12,25 @@ const initialState: SignupActionState = {};
 const checkboxClass =
   "mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-surface accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-export function SignupForm() {
+type Props = {
+  redirectTo?: string;
+};
+
+export function SignupForm({ redirectTo }: Props) {
   const [state, formAction, pending] = useActionState(
     signupAction,
     initialState,
   );
 
+  const signinHref = redirectTo
+    ? `/signin?redirectTo=${encodeURIComponent(redirectTo)}`
+    : "/signin";
+
   return (
     <form action={formAction} className="flex flex-col gap-5">
+      {redirectTo && (
+        <input type="hidden" name="redirectTo" value={redirectTo} />
+      )}
       <FormField label="Email" htmlFor="email" error={state.fieldErrors?.email}>
         <Input
           id="email"
@@ -120,7 +131,7 @@ export function SignupForm() {
       <p className="text-center text-sm text-foreground-muted">
         Already have an account?{" "}
         <Link
-          href="/signin"
+          href={signinHref}
           className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           Sign in

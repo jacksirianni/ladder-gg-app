@@ -2,6 +2,7 @@
 
 import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
+import { safeInternalPath } from "@/lib/auth/redirect";
 import { signinSchema } from "@/lib/validators/auth";
 
 export type SigninActionState = {
@@ -31,12 +32,14 @@ export async function signinAction(
   }
 
   const { email, password } = parsed.data;
+  const requestedRedirect =
+    safeInternalPath(String(formData.get("redirectTo") ?? "")) ?? "/dashboard";
 
   try {
     await signIn("credentials", {
       email,
       password,
-      redirectTo: "/dashboard",
+      redirectTo: requestedRedirect,
     });
   } catch (err) {
     if (err instanceof AuthError) {

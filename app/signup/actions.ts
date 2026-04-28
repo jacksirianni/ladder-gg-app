@@ -3,6 +3,7 @@
 import bcrypt from "bcryptjs";
 import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
+import { safeInternalPath } from "@/lib/auth/redirect";
 import { prisma } from "@/lib/db/prisma";
 import { signupSchema } from "@/lib/validators/auth";
 
@@ -55,11 +56,14 @@ export async function signupAction(
     },
   });
 
+  const requestedRedirect =
+    safeInternalPath(String(formData.get("redirectTo") ?? "")) ?? "/dashboard";
+
   try {
     await signIn("credentials", {
       email,
       password,
-      redirectTo: "/dashboard",
+      redirectTo: requestedRedirect,
     });
   } catch (err) {
     if (err instanceof AuthError) {
