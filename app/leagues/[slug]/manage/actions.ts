@@ -15,6 +15,7 @@ import {
   applyMatchCascade,
   computeBracketSize,
 } from "@/lib/bracket/apply-cascade";
+import { notifyBracketStarted } from "@/lib/email/notify";
 import { generateInviteToken } from "@/lib/token";
 import { generateSlug } from "@/lib/slug";
 import {
@@ -205,6 +206,10 @@ export async function startLeagueAction(formData: FormData) {
   revalidatePath(`/leagues/${league.slug}/manage`);
   revalidatePath(`/leagues/${league.slug}`);
   revalidatePath("/dashboard");
+
+  // v2.0-B: bracket-started emails. Fire-and-forget — failures here
+  // never block the start action. No-op without RESEND_API_KEY.
+  void notifyBracketStarted(league.id);
 }
 
 export async function resolveDisputeAction(formData: FormData) {

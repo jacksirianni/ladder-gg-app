@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { ChangeHandleForm } from "@/components/change-handle-form";
 import { ExternalProfilesManager } from "@/components/external-profiles-manager";
 import { ProfileEditForm } from "@/components/profile-edit-form";
+import { setEmailNotificationsAction } from "@/app/account/actions";
 import { prisma } from "@/lib/db/prisma";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -107,6 +108,43 @@ export default async function AccountPage() {
           <div className="mt-4">
             <ExternalProfilesManager profiles={externalProfiles} />
           </div>
+        </section>
+
+        {/* v2.0-B: email notification opt-out. Master switch — granular
+            per-event preferences arrive in v2.0-B.1. */}
+        <section className="mt-10">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            Email notifications
+          </h2>
+          <p className="mt-2 text-sm text-foreground-muted">
+            We send transactional emails when a bracket starts and when
+            a league finishes. Turn them off if you&apos;d rather just check
+            the dashboard.
+          </p>
+          <form action={setEmailNotificationsAction} className="mt-4">
+            <label
+              htmlFor="emailNotifications"
+              className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-4 py-3 text-sm"
+            >
+              <input
+                id="emailNotifications"
+                type="checkbox"
+                name="emailNotifications"
+                defaultChecked={user.emailNotifications}
+                className="h-4 w-4 accent-primary"
+              />
+              <span>
+                Send me league notifications at{" "}
+                <span className="font-mono text-foreground">{user.email}</span>
+              </span>
+            </label>
+            <button
+              type="submit"
+              className="mt-3 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:text-foreground"
+            >
+              Save preference
+            </button>
+          </form>
         </section>
 
         <section className="mt-10">

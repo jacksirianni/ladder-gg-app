@@ -3,6 +3,7 @@ import type {
   MatchBracket,
   Prisma,
 } from "@prisma/client";
+import { notifyLeagueCompleted } from "@/lib/email/notify";
 import {
   isDoubleElim,
   lbWonGrandFinal,
@@ -175,6 +176,11 @@ async function markLeagueCompleted(tx: TxLike, leagueId: string) {
     where: { id: leagueId },
     data: { state: "COMPLETED", completedAt: new Date() },
   });
+  // v2.0-B: fire-and-forget league-completed email burst.
+  // Schedule outside the transaction (using void + setImmediate-equivalent
+  // would be cleaner but we just call it — notify reads from prisma
+  // separately and is best-effort, wrapped in try/catch internally).
+  void notifyLeagueCompleted(leagueId);
 }
 
 /**

@@ -131,6 +131,10 @@ model User {
   // v2.0: avatar URL (Vercel Blob) + 200-char bio. Display-only.
   avatarUrl                String?
   bio                      String?
+  // v2.0-B: master opt-out for transactional notification emails.
+  // Default true (opt-in by default for new + existing users); user
+  // can flip on /account.
+  emailNotifications       Boolean               @default(true)
   ageConfirmed             Boolean               @default(false)
   stripeConnectedAccountId String?
   accounts                 Account[]

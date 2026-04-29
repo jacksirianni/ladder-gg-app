@@ -336,3 +336,24 @@ export async function updateProfileAction(
   await setFlashToast({ kind: "success", message: "Profile saved." });
   return { success: true };
 }
+
+// ---------------------------------------------------------------
+// v2.0-B: email notification preferences (master opt-out)
+// ---------------------------------------------------------------
+
+export async function setEmailNotificationsAction(formData: FormData) {
+  const user = await requireAuth();
+  // Checkbox: present + "on" → true, absent → false.
+  const enabled = formData.get("emailNotifications") === "on";
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { emailNotifications: enabled },
+  });
+
+  revalidatePath("/account");
+  await setFlashToast({
+    kind: "success",
+    message: enabled ? "Emails turned on." : "Emails turned off.",
+  });
+}
