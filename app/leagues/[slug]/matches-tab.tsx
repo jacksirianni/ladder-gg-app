@@ -33,17 +33,25 @@ type Props = {
   matches: MatchForTab[];
   viewerId: string | null;
   isOrganizer?: boolean;
+  /** Match id to open on mount (from `?match=` deep link). Server has
+   * already validated that the id exists in this league. */
+  initialMatchId?: string | null;
 };
 
-export function MatchesTab({ matches, viewerId, isOrganizer = false }: Props) {
-  const [openMatchId, setOpenMatchId] = useState<string | null>(null);
+export function MatchesTab({
+  matches,
+  viewerId,
+  isOrganizer = false,
+  initialMatchId = null,
+}: Props) {
+  const [openMatchId, setOpenMatchId] = useState<string | null>(initialMatchId);
   const openMatch = matches.find((m) => m.id === openMatchId) ?? null;
 
   if (matches.length === 0) {
     return (
       <EmptyState
-        title="No matches yet"
-        description="Matches appear once the organizer starts the league."
+        title="Bracket hasn't started"
+        description="Matches will appear here once the organizer kicks things off."
       />
     );
   }

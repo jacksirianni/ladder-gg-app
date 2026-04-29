@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -12,6 +13,7 @@ import { ConfirmButton } from "@/components/confirm-button";
 import { CopyMessageBox } from "@/components/copy-message-box";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import {
   canCancelLeague,
@@ -31,6 +33,11 @@ import { EditLeagueButton } from "./edit-modal";
 
 type Props = {
   params: Promise<{ slug: string }>;
+};
+
+export const metadata: Metadata = {
+  title: "Manage league",
+  robots: { index: false, follow: false },
 };
 
 const payoutLabels: Record<string, string> = {
@@ -471,7 +478,8 @@ export default async function ManageLeaguePage({ params }: Props) {
 
           {league.teams.length === 0 ? (
             <p className="mt-4 text-sm text-foreground-subtle">
-              No teams yet. Share the invite link above.
+              No teams yet. Share the invite link above — the first captain to
+              register kicks things off.
             </p>
           ) : (
             <ul className="mt-4 flex flex-col gap-3">
@@ -679,6 +687,7 @@ export default async function ManageLeaguePage({ params }: Props) {
           )}
         </section>
       </main>
+      <SiteFooter />
     </>
   );
 }

@@ -14,14 +14,18 @@ import { BracketView } from "@/components/bracket-view";
 import { ChampionHero } from "@/components/champion-hero";
 import { ConfirmButton } from "@/components/confirm-button";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { SampleBracketPreview } from "@/components/sample-bracket-preview";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
+import { ViewerCta } from "@/components/viewer-cta";
 import { MatchesTab } from "./matches-tab";
 import { leaveTeamAction } from "./actions";
 import { EditTeamButton } from "./edit-team-modal";
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ match?: string }>;
 };
 
 const payoutLabels: Record<string, string> = {
@@ -64,8 +68,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function PublicLeaguePage({ params }: Props) {
+export default async function PublicLeaguePage({
+  params,
+  searchParams,
+}: Props) {
   const { slug } = await params;
+  const { match: initialMatchParam } = await searchParams;
 
   const league = await prisma.league.findUnique({
     where: { slug },
@@ -145,6 +153,15 @@ export default async function PublicLeaguePage({ params }: Props) {
   const showBracket =
     league.state === "IN_PROGRESS" || league.state === "COMPLETED";
 
+  // v1.4: dashboard action queue deep-links here with ?match=<id>. Only honor
+  // the param if it matches a real match in this league so we don't open a
+  // ghost modal.
+  const initialMatchId =
+    initialMatchParam &&
+    league.matches.some((m) => m.id === initialMatchParam)
+      ? initialMatchParam
+      : null;
+
   const matchesForTab = league.matches.map((m) => ({
     id: m.id,
     round: m.round,
@@ -187,6 +204,42 @@ export default async function PublicLeaguePage({ params }: Props) {
         <p className="mt-2 text-sm text-foreground-subtle">
           Organized by {league.organizer.displayName}
         </p>
+
+        {/* v1.4: OPEN-state hero highlights registration progress + format. */}
+        {league.state === "OPEN" && (
+          <section
+            className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 px-5 py-4"
+            aria-label="Registration open"
+          >
+            <div className="min-w-0">
+              <p className="font-mono text-xs uppercase tracking-widest text-primary">
+                Registration open
+              </p>
+              <p className="mt-1 text-sm">
+                <span className="font-semibold">
+                  {league.teams.length} of {league.maxTeams}
+                </span>{" "}
+                teams registered
+                <span className="text-foreground-subtle"> · </span>
+                <span className="font-mono text-xs">
+                  {league.teamSize === 1
+                    ? "1v1"
+                    : `${league.teamSize}v${league.teamSize}`}
+                </span>
+                <span className="text-foreground-subtle"> · </span>
+                <span>
+                  Entry $
+                  {(league.buyInCents / 100).toFixed(2)}
+                </span>
+              </p>
+            </div>
+            {!captainTeam && league.teams.length < league.maxTeams && (
+              <p className="font-mono text-xs text-foreground-subtle">
+                Captains: ask the organizer for the invite link.
+              </p>
+            )}
+          </section>
+        )}
 
         {captainTeam && (
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-5 py-4">
@@ -248,7 +301,7 @@ export default async function PublicLeaguePage({ params }: Props) {
         )}
 
         <div className="mt-10">
-          <Tabs defaultValue="overview">
+          <Tabs defaultValue={initialMatchId ? "matches" : "overview"}>
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="teams">
@@ -333,9 +386,19 @@ export default async function PublicLeaguePage({ params }: Props) {
                   </div>
                 </div>
               ) : (
-                <p className="mt-4 rounded-md border border-dashed border-border bg-surface/40 px-4 py-3 text-sm text-foreground-muted">
-                  Bracket appears once the organizer starts the league.
-                </p>
+                // v1.4: show a placeholder bracket so viewers can picture
+                // the format before the league starts.
+                <div className="mt-8">
+                  <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Bracket preview
+                  </h2>
+                  <div className="mt-4 rounded-lg border border-dashed border-border bg-surface/30 p-4">
+                    <SampleBracketPreview
+                      maxTeams={league.maxTeams}
+                      filledTeams={league.teams.length}
+                    />
+                  </div>
+                </div>
               )}
             </TabsContent>
 
@@ -345,7 +408,9 @@ export default async function PublicLeaguePage({ params }: Props) {
                   title="No teams yet"
                   description={
                     league.state === "OPEN"
-                      ? "Be the first to register via the organizer's invite link."
+                      ? "Up to " +
+                        league.maxTeams +
+                        " teams can register. Captains need an invite link from the organizer."
                       : "Registration was not opened for this league."
                   }
                 />
@@ -369,11 +434,18 @@ export default async function PublicLeaguePage({ params }: Props) {
                 matches={matchesForTab}
                 viewerId={viewerId}
                 isOrganizer={isOrganizer}
+                initialMatchId={initialMatchId}
               />
             </TabsContent>
           </Tabs>
         </div>
+
+        {/* v1.4: gentle signup hook for unauthenticated viewers. */}
+        {viewerId === null && (
+          <ViewerCta redirectTo={`/leagues/${league.slug}`} />
+        )}
       </main>
+      <SiteFooter />
     </>
   );
 }

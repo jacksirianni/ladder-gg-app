@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
 export const metadata = {
@@ -29,6 +30,7 @@ export default function NotFound() {
           </Button>
         </div>
       </main>
+      <SiteFooter />
     </>
   );
 }

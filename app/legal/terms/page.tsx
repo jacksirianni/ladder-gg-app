@@ -1,3 +1,4 @@
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
 export const metadata = {
@@ -102,6 +103,7 @@ export default function TermsPage() {
           </section>
         </div>
       </main>
+      <SiteFooter />
     </>
   );
 }

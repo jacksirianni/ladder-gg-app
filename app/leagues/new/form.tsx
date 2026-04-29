@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ChipPicker } from "@/components/chip-picker";
+import { PaymentTemplatePicker } from "@/components/payment-template-picker";
 import {
   createLeagueAction,
   type CreateLeagueActionState,
@@ -13,23 +15,53 @@ import {
 
 const initialState: CreateLeagueActionState = {};
 
+const GAME_SUGGESTIONS = [
+  "Super Smash Bros Ultimate",
+  "Rocket League",
+  "Mario Kart 8 Deluxe",
+  "Valorant",
+  "League of Legends",
+  "FIFA",
+  "NBA 2K",
+  "Madden",
+  "Fortnite",
+  "Call of Duty",
+] as const;
+
+// v1.4: round counts so organizers can picture the bracket before publishing.
+function roundsForTeams(n: number): number {
+  if (n < 2) return 0;
+  return Math.ceil(Math.log2(n));
+}
+
 export function CreateLeagueForm() {
   const [state, action, pending] = useActionState(
     createLeagueAction,
     initialState,
   );
 
+  // Controlled bits so the chips and templates can write into them.
+  const [game, setGame] = useState("");
+  const [paymentInstructions, setPaymentInstructions] = useState("");
+  const [teamSize, setTeamSize] = useState<number>(1);
+  const [maxTeams, setMaxTeams] = useState<number>(8);
+
+  const rounds = roundsForTeams(maxTeams);
+  const teamSizeLabel =
+    teamSize === 1 ? "1v1 (solo)" : `${teamSize}v${teamSize}`;
+
   return (
     <form action={action} className="flex flex-col gap-5">
       <FormField
         label="League name"
         htmlFor="name"
+        hint="What you'll call the bracket. Captains and viewers see this everywhere."
         error={state.fieldErrors?.name}
       >
         <Input
           id="name"
           name="name"
-          placeholder="Saturday MK8 Cup"
+          placeholder="Saturday Smash Cup"
           required
           maxLength={80}
         />
@@ -38,7 +70,7 @@ export function CreateLeagueForm() {
       <FormField
         label="Description"
         htmlFor="description"
-        hint="Optional. Shown on the public league page."
+        hint='Optional. Shown on the public page. e.g. "Friday-night 1v1 at my place. Pizza on the house."'
         error={state.fieldErrors?.description}
       >
         <Input id="description" name="description" maxLength={500} />
@@ -47,7 +79,7 @@ export function CreateLeagueForm() {
       <FormField
         label="Game"
         htmlFor="game"
-        hint="Any game you play. Free text."
+        hint="Pick a common one or type your own."
         error={state.fieldErrors?.game}
       >
         <Input
@@ -56,6 +88,15 @@ export function CreateLeagueForm() {
           placeholder="Mario Kart 8 Deluxe"
           required
           maxLength={50}
+          value={game}
+          onChange={(e) => setGame(e.target.value)}
+        />
+        <ChipPicker
+          ariaLabel="Game suggestions"
+          options={GAME_SUGGESTIONS}
+          value={game}
+          onSelect={setGame}
+          className="mt-2"
         />
       </FormField>
 
@@ -63,7 +104,7 @@ export function CreateLeagueForm() {
         <FormField
           label="Team size"
           htmlFor="teamSize"
-          hint="Players per team."
+          hint={`Players per team. ${teamSizeLabel}.`}
           error={state.fieldErrors?.teamSize}
         >
           <Input
@@ -72,7 +113,8 @@ export function CreateLeagueForm() {
             type="number"
             min={1}
             max={10}
-            defaultValue={1}
+            value={teamSize}
+            onChange={(e) => setTeamSize(Number(e.target.value) || 1)}
             required
           />
         </FormField>
@@ -80,7 +122,11 @@ export function CreateLeagueForm() {
         <FormField
           label="Max teams"
           htmlFor="maxTeams"
-          hint="Cap on registered teams."
+          hint={
+            rounds > 0
+              ? `${rounds} round${rounds === 1 ? "" : "s"} for ${maxTeams} teams. Byes fill any gaps.`
+              : "Cap on registered teams."
+          }
           error={state.fieldErrors?.maxTeams}
         >
           <Input
@@ -89,7 +135,8 @@ export function CreateLeagueForm() {
             type="number"
             min={2}
             max={32}
-            defaultValue={8}
+            value={maxTeams}
+            onChange={(e) => setMaxTeams(Number(e.target.value) || 2)}
             required
           />
         </FormField>
@@ -107,7 +154,7 @@ export function CreateLeagueForm() {
           type="number"
           min={0}
           step="0.01"
-          defaultValue="5"
+          defaultValue="0"
           required
         />
       </FormField>
@@ -115,7 +162,7 @@ export function CreateLeagueForm() {
       <FormField
         label="Prize split"
         htmlFor="payoutPreset"
-        hint="How you'll split the prize among top finishers. You manage the actual payout."
+        hint="How you'll divide the prize. You manage the actual payout."
         error={state.fieldErrors?.payoutPreset}
       >
         <Select id="payoutPreset" name="payoutPreset" defaultValue="WTA">
@@ -128,7 +175,7 @@ export function CreateLeagueForm() {
       <FormField
         label="Payment instructions"
         htmlFor="paymentInstructions"
-        hint='Optional. Tell captains how to pay you. e.g. "Venmo @your-handle by Friday."'
+        hint="Optional. Tell captains exactly how to pay. Pick a template and edit your handle in."
         error={state.fieldErrors?.paymentInstructions}
       >
         <Textarea
@@ -136,7 +183,12 @@ export function CreateLeagueForm() {
           name="paymentInstructions"
           maxLength={500}
           rows={3}
+          value={paymentInstructions}
+          onChange={(e) => setPaymentInstructions(e.target.value)}
         />
+        <div className="mt-2">
+          <PaymentTemplatePicker onSelect={setPaymentInstructions} />
+        </div>
       </FormField>
 
       <FormField

@@ -4,6 +4,7 @@ import { signOut } from "@/auth";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ChangePasswordForm } from "./change-password-form";
 
@@ -95,6 +96,7 @@ export default async function AccountPage() {
           </p>
         </section>
       </main>
+      <SiteFooter />
     </>
   );
 }

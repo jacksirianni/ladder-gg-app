@@ -18,6 +18,7 @@ import {
   type MatchActionState,
 } from "@/app/leagues/[slug]/actions";
 import { overrideMatchAction } from "@/app/leagues/[slug]/manage/actions";
+import { formatRelativeTime } from "@/lib/relative-time";
 
 type Match = {
   id: string;
@@ -52,15 +53,10 @@ type Props = {
 
 const initialState: MatchActionState = {};
 
+// v1.4: friendlier "X minutes ago" style; falls back to short date past 7 days.
 function formatTimestamp(iso: string | null): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatRelativeTime(iso);
 }
 
 export function MatchActionModal({

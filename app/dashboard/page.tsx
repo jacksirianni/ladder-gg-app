@@ -1,10 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { LeagueState, PaymentStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { Button } from "@/components/ui/button";
+import { ActionQueue, type ActionQueueItem } from "@/components/action-queue";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
 const paymentLabel: Record<PaymentStatus, string> = {
@@ -12,6 +15,11 @@ const paymentLabel: Record<PaymentStatus, string> = {
   PAID: "Paid",
   WAIVED: "Waived",
   REFUNDED: "Refunded",
+};
+
+export const metadata: Metadata = {
+  title: "Dashboard",
+  description: "Your active and past leagues on LADDER.gg.",
 };
 
 const ACTIVE_STATES = new Set<LeagueState>(["DRAFT", "OPEN", "IN_PROGRESS"]);
@@ -63,7 +71,8 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  // v1.2: count matches the captain needs to act on, grouped by league.
+  // v1.4: surface the actual matches needing action (not just counts), so the
+  // dashboard can deep-link straight to the right modal.
   const [awaitingReport, awaitingConfirmRaw] = await Promise.all([
     prisma.match.findMany({
       where: {
@@ -73,7 +82,16 @@ export default async function DashboardPage() {
           { teamB: { captainUserId: user.id } },
         ],
       },
-      select: { id: true, leagueId: true },
+      orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
+      select: {
+        id: true,
+        leagueId: true,
+        round: true,
+        bracketPosition: true,
+        league: { select: { slug: true, name: true } },
+        teamA: { select: { id: true, name: true, captainUserId: true } },
+        teamB: { select: { id: true, name: true, captainUserId: true } },
+      },
     }),
     prisma.match.findMany({
       where: {
@@ -83,9 +101,15 @@ export default async function DashboardPage() {
           { teamB: { captainUserId: user.id } },
         ],
       },
+      orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
       select: {
         id: true,
         leagueId: true,
+        round: true,
+        bracketPosition: true,
+        league: { select: { slug: true, name: true } },
+        teamA: { select: { id: true, name: true, captainUserId: true } },
+        teamB: { select: { id: true, name: true, captainUserId: true } },
         reports: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -99,6 +123,8 @@ export default async function DashboardPage() {
     (m) => m.reports[0] && m.reports[0].reportedByUserId !== user.id,
   );
 
+  // Per-league counts (kept for the secondary indicator on captained league
+  // cards below).
   const actionsByLeague = new Map<string, number>();
   for (const m of awaitingReport) {
     actionsByLeague.set(m.leagueId, (actionsByLeague.get(m.leagueId) ?? 0) + 1);
@@ -106,6 +132,37 @@ export default async function DashboardPage() {
   for (const m of awaitingConfirm) {
     actionsByLeague.set(m.leagueId, (actionsByLeague.get(m.leagueId) ?? 0) + 1);
   }
+
+  // v1.4: build a flat action queue prioritising "you need to report" first
+  // (those gate everything else) then "you need to confirm".
+  const userId = user.id;
+  function rowFromMatch(
+    m: (typeof awaitingReport)[number],
+    action: "report" | "confirm",
+  ): ActionQueueItem | null {
+    if (!m.teamA || !m.teamB) return null;
+    const youAreA = m.teamA.captainUserId === userId;
+    const yourTeam = youAreA ? m.teamA : m.teamB;
+    const opp = youAreA ? m.teamB : m.teamA;
+    return {
+      matchId: m.id,
+      leagueSlug: m.league.slug,
+      leagueName: m.league.name,
+      action,
+      round: m.round,
+      bracketPosition: m.bracketPosition,
+      yourTeamName: yourTeam.name,
+      opponentName: opp.name,
+    };
+  }
+  const actionQueueItems: ActionQueueItem[] = [
+    ...awaitingReport
+      .map((m) => rowFromMatch(m, "report"))
+      .filter((x): x is ActionQueueItem => x !== null),
+    ...awaitingConfirm
+      .map((m) => rowFromMatch(m, "confirm"))
+      .filter((x): x is ActionQueueItem => x !== null),
+  ];
 
   const hasAnything = organized.length > 0 || captained.length > 0;
 
@@ -200,6 +257,9 @@ export default async function DashboardPage() {
             <StatCard label="Active" value={activeCount} accent />
           </section>
         )}
+
+        {/* v1.4: top-of-dashboard action queue with deep links into matches. */}
+        <ActionQueue items={actionQueueItems} />
 
         {!hasAnything ? (
           <section className="mt-12 rounded-lg border border-dashed border-border bg-surface/30 px-6 py-16 text-center">
@@ -420,6 +480,7 @@ export default async function DashboardPage() {
           </>
         )}
       </main>
+      <SiteFooter />
     </>
   );
 }

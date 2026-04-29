@@ -1,8 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { safeInternalPath } from "@/lib/auth/redirect";
 import { SignupForm } from "./signup-form";
+
+export const metadata: Metadata = {
+  title: "Sign up",
+  description: "Create a free LADDER.gg account.",
+};
 
 type Props = {
   searchParams: Promise<{ redirectTo?: string }>;

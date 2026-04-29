@@ -1,8 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { safeInternalPath } from "@/lib/auth/redirect";
 import { SigninForm } from "./signin-form";
+
+export const metadata: Metadata = {
+  title: "Sign in",
+  description: "Sign in to LADDER.gg.",
+};
 
 type Props = {
   searchParams: Promise<{ redirectTo?: string }>;

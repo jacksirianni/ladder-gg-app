@@ -1,10 +1,18 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { Card } from "@/components/ui/card";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { NextSteps } from "@/components/next-steps";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { JoinForm } from "./form";
+
+export const metadata: Metadata = {
+  title: "Join league",
+  robots: { index: false, follow: false },
+};
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -66,6 +74,7 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
             </p>
           </Card>
         </main>
+        <SiteFooter />
       </>
     );
   }
@@ -85,6 +94,7 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
             </p>
           </Card>
         </main>
+        <SiteFooter />
       </>
     );
   }
@@ -130,6 +140,37 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
           </p>
         </div>
 
+        {/* v1.4: clearer "what happens next" flow for first-time captains */}
+        <NextSteps
+          className="mt-6"
+          eyebrow="How this works"
+          steps={[
+            {
+              title: "Register your team",
+              body: `Pick a team name${
+                league.teamSize > 1
+                  ? ` and add ${league.teamSize - 1} teammate${league.teamSize - 1 === 1 ? "" : "s"}`
+                  : ""
+              }.`,
+              current: true,
+            },
+            {
+              title:
+                league.buyInCents > 0
+                  ? "Pay the entry fee"
+                  : "Wait for the bracket",
+              body:
+                league.buyInCents > 0
+                  ? "The organizer will tell you exactly how to pay (Venmo, Cash App, etc.) and mark you paid once they receive it."
+                  : "This is a free league. Once the organizer starts it, your matches will appear on the league page.",
+            },
+            {
+              title: "Report your matches",
+              body: "When a match is ready, you'll see it on your dashboard. Report the score; the other captain confirms. Disputes go to the organizer.",
+            },
+          ]}
+        />
+
         <h2 className="mt-10 text-lg font-semibold">Register your team</h2>
         <p className="mt-1 text-sm text-foreground-muted">
           Set the team name and add{" "}
@@ -148,6 +189,7 @@ export default async function JoinLeaguePage({ params, searchParams }: Props) {
           />
         </div>
       </main>
+      <SiteFooter />
     </>
   );
 }
