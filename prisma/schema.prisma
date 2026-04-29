@@ -44,11 +44,15 @@ model User {
   emailVerified            DateTime?
   passwordHash             String
   displayName              String
+  // v1.5: short URL handle for `/p/[handle]`. Nullable in schema so existing
+  // rows can be backfilled; runtime always populates for new signups.
+  handle                   String?       @unique
   ageConfirmed             Boolean       @default(false)
   stripeConnectedAccountId String?
   accounts                 Account[]
   sessions                 Session[]
   organizedLeagues         League[]
+  organizedSeasons         Season[]      @relation("UserSeasons")
   captainedTeams           Team[]
   matchReports             MatchReport[] @relation("MatchReportReporter")
   matchesResolved          Match[]       @relation("MatchResolver")
@@ -107,6 +111,8 @@ model League {
   prizeNotes           String?
   state                LeagueState  @default(DRAFT)
   organizerId          String
+  // v1.5: optional grouping with other leagues from the same organizer.
+  seasonId             String?
   inviteToken          String       @unique
   publishedAt          DateTime?
   registrationClosesAt DateTime?
@@ -117,8 +123,27 @@ model League {
   updatedAt            DateTime     @updatedAt
 
   organizer User    @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  season    Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   teams     Team[]
   matches   Match[]
+
+  @@index([organizerId])
+  @@index([seasonId])
+}
+
+// v1.5: groups multiple leagues into a recurring series. The organizer of
+// the season also organizes (or at least owns) every league in it.
+model Season {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  organizerId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organizer User     @relation("UserSeasons", fields: [organizerId], references: [id], onDelete: Restrict)
+  leagues   League[]
 
   @@index([organizerId])
 }

@@ -13,6 +13,7 @@ import { ConfirmButton } from "@/components/confirm-button";
 import { CopyMessageBox } from "@/components/copy-message-box";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import {
@@ -190,6 +191,7 @@ export default async function ManageLeaguePage({ params }: Props) {
   const league = await prisma.league.findUnique({
     where: { slug },
     include: {
+      season: { select: { slug: true, name: true } },
       teams: {
         orderBy: { createdAt: "asc" },
         include: {
@@ -270,6 +272,9 @@ export default async function ManageLeaguePage({ params }: Props) {
           <span className="font-mono text-xs text-foreground-subtle">
             {league.game}
           </span>
+          {league.season && (
+            <SeasonPill slug={league.season.slug} name={league.season.name} />
+          )}
         </div>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">
           {league.name}

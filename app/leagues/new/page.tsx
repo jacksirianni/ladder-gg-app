@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/db/prisma";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { CreateLeagueForm } from "./form";
@@ -15,6 +16,17 @@ export default async function NewLeaguePage() {
   if (!session?.user) {
     redirect("/signin");
   }
+
+  // v1.5: surface the organizer's existing season names as one-click chips,
+  // so a returning organizer can attach this league to a series without
+  // typing the name again.
+  const existingSeasons = await prisma.season.findMany({
+    where: { organizerId: session.user.id },
+    orderBy: { updatedAt: "desc" },
+    select: { name: true },
+    take: 10,
+  });
+  const existingSeasonNames = existingSeasons.map((s) => s.name);
 
   return (
     <>
@@ -31,7 +43,7 @@ export default async function NewLeaguePage() {
           the manage page.
         </p>
         <div className="mt-10">
-          <CreateLeagueForm />
+          <CreateLeagueForm existingSeasonNames={existingSeasonNames} />
         </div>
       </main>
       <SiteFooter />

@@ -15,6 +15,11 @@ import {
 
 const initialState: CreateLeagueActionState = {};
 
+type Props = {
+  /** Names of seasons the organizer already owns, for the chip picker. */
+  existingSeasonNames?: string[];
+};
+
 const GAME_SUGGESTIONS = [
   "Super Smash Bros Ultimate",
   "Rocket League",
@@ -34,7 +39,7 @@ function roundsForTeams(n: number): number {
   return Math.ceil(Math.log2(n));
 }
 
-export function CreateLeagueForm() {
+export function CreateLeagueForm({ existingSeasonNames = [] }: Props) {
   const [state, action, pending] = useActionState(
     createLeagueAction,
     initialState,
@@ -45,6 +50,7 @@ export function CreateLeagueForm() {
   const [paymentInstructions, setPaymentInstructions] = useState("");
   const [teamSize, setTeamSize] = useState<number>(1);
   const [maxTeams, setMaxTeams] = useState<number>(8);
+  const [seasonName, setSeasonName] = useState("");
 
   const rounds = roundsForTeams(maxTeams);
   const teamSizeLabel =
@@ -74,6 +80,31 @@ export function CreateLeagueForm() {
         error={state.fieldErrors?.description}
       >
         <Input id="description" name="description" maxLength={500} />
+      </FormField>
+
+      <FormField
+        label="Season"
+        htmlFor="seasonName"
+        hint="Optional. Group multiple leagues into a recurring series. Leave blank for a one-off bracket."
+        error={state.fieldErrors?.seasonName}
+      >
+        <Input
+          id="seasonName"
+          name="seasonName"
+          placeholder="Friday Smash Night"
+          maxLength={80}
+          value={seasonName}
+          onChange={(e) => setSeasonName(e.target.value)}
+        />
+        {existingSeasonNames.length > 0 && (
+          <ChipPicker
+            ariaLabel="Your existing seasons"
+            options={existingSeasonNames}
+            value={seasonName}
+            onSelect={setSeasonName}
+            className="mt-2"
+          />
+        )}
       </FormField>
 
       <FormField

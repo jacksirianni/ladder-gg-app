@@ -318,6 +318,8 @@ export async function duplicateLeagueAction(formData: FormData) {
       slug,
       inviteToken: generateInviteToken(),
       organizerId: user.id,
+      // v1.5: inherit the season so "Run it back" continues the series.
+      seasonId: source.seasonId,
     },
     select: { slug: true },
   });

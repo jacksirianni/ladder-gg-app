@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { findOrCreateSeasonForOrganizer } from "@/lib/season";
 import { generateInviteToken } from "@/lib/token";
 import { generateSlug } from "@/lib/slug";
 import { createLeagueSchema } from "@/lib/validators/league";
@@ -28,6 +29,7 @@ export async function createLeagueAction(
     payoutPreset: String(formData.get("payoutPreset") ?? "WTA"),
     paymentInstructions: String(formData.get("paymentInstructions") ?? ""),
     prizeNotes: String(formData.get("prizeNotes") ?? ""),
+    seasonName: String(formData.get("seasonName") ?? ""),
   };
 
   const parsed = createLeagueSchema.safeParse(raw);
@@ -46,6 +48,7 @@ export async function createLeagueAction(
     buyInDollars,
     paymentInstructions,
     prizeNotes,
+    seasonName,
     ...rest
   } = parsed.data;
   const buyInCents = Math.round(buyInDollars * 100);
@@ -61,17 +64,28 @@ export async function createLeagueAction(
     slug = generateSlug(rest.name);
   }
 
-  const league = await prisma.league.create({
-    data: {
-      ...rest,
-      buyInCents,
-      paymentInstructions: paymentInstructions ?? null,
-      prizeNotes: prizeNotes ?? null,
-      slug,
-      inviteToken: generateInviteToken(),
-      organizerId: user.id,
-    },
-    select: { slug: true },
+  // v1.5: optional season. Empty → standalone league. Non-empty →
+  // attach to an existing season the organizer owns (case-insensitive
+  // name match), or create a new one.
+  const league = await prisma.$transaction(async (tx) => {
+    const season =
+      seasonName && seasonName.length > 0
+        ? await findOrCreateSeasonForOrganizer(seasonName, user.id, tx)
+        : null;
+
+    return tx.league.create({
+      data: {
+        ...rest,
+        buyInCents,
+        paymentInstructions: paymentInstructions ?? null,
+        prizeNotes: prizeNotes ?? null,
+        slug,
+        inviteToken: generateInviteToken(),
+        organizerId: user.id,
+        seasonId: season?.id ?? null,
+      },
+      select: { slug: true },
+    });
   });
 
   redirect(`/leagues/${league.slug}/manage`);

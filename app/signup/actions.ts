@@ -5,6 +5,7 @@ import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
 import { safeInternalPath } from "@/lib/auth/redirect";
 import { prisma } from "@/lib/db/prisma";
+import { generateHandle } from "@/lib/handle";
 import { signupSchema } from "@/lib/validators/auth";
 
 export type SignupActionState = {
@@ -47,13 +48,19 @@ export async function signupAction(
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  await prisma.user.create({
-    data: {
-      email,
-      displayName,
-      passwordHash,
-      ageConfirmed,
-    },
+  // v1.5: assign a URL handle in the same transaction as user creation so
+  // every new account is profile-addressable from the moment it exists.
+  await prisma.$transaction(async (tx) => {
+    const handle = await generateHandle(displayName, tx);
+    await tx.user.create({
+      data: {
+        email,
+        displayName,
+        handle,
+        passwordHash,
+        ageConfirmed,
+      },
+    });
   });
 
   const requestedRedirect =

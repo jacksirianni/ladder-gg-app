@@ -1,15 +1,19 @@
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { ProfileLink } from "@/components/profile-link";
 import { duplicateLeagueAction } from "@/app/leagues/[slug]/manage/actions";
 
 type WinnerTeam = {
   id: string;
   name: string;
-  captain: { displayName: string };
+  captain: { displayName: string; handle?: string | null };
   roster: { displayName: string; position: number }[];
 };
 
 type Props = {
   leagueId: string;
+  /** League slug — used to link to the recap page. */
+  leagueSlug: string;
   winnerTeam: WinnerTeam;
   runnerUpName: string | null;
   totalTeams: number;
@@ -20,6 +24,7 @@ type Props = {
 
 export function ChampionHero({
   leagueId,
+  leagueSlug,
   winnerTeam,
   runnerUpName,
   totalTeams,
@@ -43,7 +48,12 @@ export function ChampionHero({
       </h2>
       <p className="mt-3 text-base text-foreground-muted">
         Captained by{" "}
-        <span className="text-foreground">{winnerTeam.captain.displayName}</span>
+        <ProfileLink
+          handle={winnerTeam.captain.handle}
+          className="text-foreground"
+        >
+          {winnerTeam.captain.displayName}
+        </ProfileLink>
       </p>
 
       {winnerTeam.roster.length > 0 && (
@@ -66,19 +76,27 @@ export function ChampionHero({
         <Stat label="Runner-up" value={runnerUpName ?? "—"} />
       </div>
 
-      {isOrganizer && (
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-foreground-muted">
-            Want to do this again with the same setup?
-          </p>
-          <form action={duplicateLeagueAction}>
-            <input type="hidden" name="leagueId" value={leagueId} />
-            <Button type="submit" size="sm">
-              Run it back →
-            </Button>
-          </form>
-        </div>
-      )}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <Button asChild size="sm" variant="secondary">
+          <Link href={`/leagues/${leagueSlug}/recap`}>View full recap →</Link>
+        </Button>
+        {isOrganizer && (
+          <>
+            <span className="font-mono text-xs text-foreground-subtle">
+              · or ·
+            </span>
+            <p className="text-sm text-foreground-muted">
+              Run it again with the same setup:
+            </p>
+            <form action={duplicateLeagueAction}>
+              <input type="hidden" name="leagueId" value={leagueId} />
+              <Button type="submit" size="sm">
+                Run it back →
+              </Button>
+            </form>
+          </>
+        )}
+      </div>
     </section>
   );
 }

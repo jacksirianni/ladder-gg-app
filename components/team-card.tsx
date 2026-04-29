@@ -1,12 +1,13 @@
 import type { PaymentStatus } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { ProfileLink } from "@/components/profile-link";
 
 type TeamForCard = {
   id: string;
   name: string;
   paymentStatus: PaymentStatus;
-  captain: { displayName: string };
+  captain: { displayName: string; handle?: string | null };
   roster: { displayName: string; position: number }[];
 };
 
@@ -40,7 +41,9 @@ export function TeamCard({ team, showPayment }: Props) {
           <h3 className="truncate text-lg font-semibold">{team.name}</h3>
           <p className="mt-1 text-sm text-foreground-muted">
             Captain:{" "}
-            <span className="text-foreground">{team.captain.displayName}</span>
+            <ProfileLink handle={team.captain.handle} className="text-foreground">
+              {team.captain.displayName}
+            </ProfileLink>
           </p>
         </div>
         {showPayment && (

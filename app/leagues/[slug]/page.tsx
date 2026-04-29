@@ -14,7 +14,9 @@ import { BracketView } from "@/components/bracket-view";
 import { ChampionHero } from "@/components/champion-hero";
 import { ConfirmButton } from "@/components/confirm-button";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { ProfileLink } from "@/components/profile-link";
 import { SampleBracketPreview } from "@/components/sample-bracket-preview";
+import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
@@ -78,11 +80,12 @@ export default async function PublicLeaguePage({
   const league = await prisma.league.findUnique({
     where: { slug },
     include: {
-      organizer: { select: { id: true, displayName: true } },
+      organizer: { select: { id: true, displayName: true, handle: true } },
+      season: { select: { slug: true, name: true } },
       teams: {
         orderBy: { createdAt: "asc" },
         include: {
-          captain: { select: { id: true, displayName: true } },
+          captain: { select: { id: true, displayName: true, handle: true } },
           roster: { orderBy: { position: "asc" } },
         },
       },
@@ -194,6 +197,9 @@ export default async function PublicLeaguePage({
           <span className="font-mono text-xs text-foreground-subtle">
             {league.game}
           </span>
+          {league.season && (
+            <SeasonPill slug={league.season.slug} name={league.season.name} />
+          )}
         </div>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">
           {league.name}
@@ -202,7 +208,13 @@ export default async function PublicLeaguePage({
           <p className="mt-2 text-foreground-muted">{league.description}</p>
         )}
         <p className="mt-2 text-sm text-foreground-subtle">
-          Organized by {league.organizer.displayName}
+          Organized by{" "}
+          <ProfileLink
+            handle={league.organizer.handle}
+            className="text-foreground-muted"
+          >
+            {league.organizer.displayName}
+          </ProfileLink>
         </p>
 
         {/* v1.4: OPEN-state hero highlights registration progress + format. */}
@@ -283,10 +295,14 @@ export default async function PublicLeaguePage({
         {winnerTeam && (
           <ChampionHero
             leagueId={league.id}
+            leagueSlug={league.slug}
             winnerTeam={{
               id: winnerTeam.id,
               name: winnerTeam.name,
-              captain: { displayName: winnerTeam.captain.displayName },
+              captain: {
+                displayName: winnerTeam.captain.displayName,
+                handle: winnerTeam.captain.handle,
+              },
               roster: winnerTeam.roster.map((r) => ({
                 displayName: r.displayName,
                 position: r.position,

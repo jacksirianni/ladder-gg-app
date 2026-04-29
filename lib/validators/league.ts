@@ -8,6 +8,14 @@ const optionalLongText = (label: string) =>
     .optional()
     .or(z.literal("").transform(() => undefined));
 
+// v1.5: optional season name. Empty/whitespace → standalone league.
+const optionalSeasonName = z
+  .string()
+  .trim()
+  .max(80, "Season name must be 80 characters or fewer.")
+  .optional()
+  .or(z.literal("").transform(() => undefined));
+
 export const createLeagueSchema = z.object({
   name: z
     .string()
@@ -37,6 +45,7 @@ export const createLeagueSchema = z.object({
   payoutPreset: z.enum(["WTA", "TOP_2", "TOP_3"]),
   paymentInstructions: optionalLongText("Payment instructions"),
   prizeNotes: optionalLongText("Prize notes"),
+  seasonName: optionalSeasonName,
 });
 
 export type CreateLeagueInput = z.infer<typeof createLeagueSchema>;
