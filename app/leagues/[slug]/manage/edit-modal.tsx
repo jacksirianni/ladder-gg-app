@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import type { LeagueVisibility } from "@prisma/client";
 import {
   Dialog,
   DialogDescription,
@@ -11,6 +12,10 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  RegistrationAccessFields,
+  toDatetimeLocalValue,
+} from "@/components/registration-access-fields";
 import {
   updateLeagueAction,
   type UpdateLeagueActionState,
@@ -26,6 +31,11 @@ type LeagueForEdit = {
   payoutPreset: "WTA" | "TOP_2" | "TOP_3";
   paymentInstructions: string | null;
   prizeNotes: string | null;
+  // v1.6: visibility + scheduling.
+  visibility: LeagueVisibility;
+  registrationClosesAt: Date | null;
+  startsAt: Date | null;
+  lookingForTeams: boolean;
 };
 
 type Props = {
@@ -218,6 +228,19 @@ export function EditLeagueButton({ league, teamCount }: Props) {
               rows={3}
             />
           </FormField>
+
+          {/* v1.6: visibility + scheduling controls. */}
+          <RegistrationAccessFields
+            defaults={{
+              visibility: league.visibility,
+              registrationClosesAt: toDatetimeLocalValue(
+                league.registrationClosesAt,
+              ),
+              startsAt: toDatetimeLocalValue(league.startsAt),
+              lookingForTeams: league.lookingForTeams,
+            }}
+            fieldErrors={state.fieldErrors}
+          />
 
           {state.error && (
             <p className="text-sm text-destructive">{state.error}</p>

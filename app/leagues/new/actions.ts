@@ -30,6 +30,11 @@ export async function createLeagueAction(
     paymentInstructions: String(formData.get("paymentInstructions") ?? ""),
     prizeNotes: String(formData.get("prizeNotes") ?? ""),
     seasonName: String(formData.get("seasonName") ?? ""),
+    // v1.6: visibility + scheduling.
+    visibility: String(formData.get("visibility") ?? "UNLISTED"),
+    registrationClosesAt: String(formData.get("registrationClosesAt") ?? ""),
+    startsAt: String(formData.get("startsAt") ?? ""),
+    lookingForTeams: formData.get("lookingForTeams") ?? undefined,
   };
 
   const parsed = createLeagueSchema.safeParse(raw);
@@ -49,6 +54,10 @@ export async function createLeagueAction(
     paymentInstructions,
     prizeNotes,
     seasonName,
+    visibility,
+    registrationClosesAt,
+    startsAt,
+    lookingForTeams,
     ...rest
   } = parsed.data;
   const buyInCents = Math.round(buyInDollars * 100);
@@ -83,6 +92,11 @@ export async function createLeagueAction(
         inviteToken: generateInviteToken(),
         organizerId: user.id,
         seasonId: season?.id ?? null,
+        // v1.6: visibility + scheduling.
+        visibility,
+        registrationClosesAt: registrationClosesAt ?? null,
+        startsAt: startsAt ?? null,
+        lookingForTeams: lookingForTeams ?? false,
       },
       select: { slug: true },
     });

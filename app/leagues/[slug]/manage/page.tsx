@@ -13,9 +13,13 @@ import { ConfirmButton } from "@/components/confirm-button";
 import { CopyMessageBox } from "@/components/copy-message-box";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { LookingForTeamsBadge } from "@/components/looking-for-teams-badge";
+import { RegistrationStatus } from "@/components/registration-status";
 import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { VisibilityPill } from "@/components/visibility-pill";
+import { shouldShowLookingForTeams } from "@/lib/league-access";
 import {
   canCancelLeague,
   canPublishLeague,
@@ -357,6 +361,97 @@ export default async function ManageLeaguePage({ params }: Props) {
           </Card>
         </section>
 
+        {/* v1.6: Registration & Access summary (read-only — edit via the modal). */}
+        <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              Registration &amp; Access
+            </h2>
+            {shouldShowLookingForTeams({
+              lookingForTeams: league.lookingForTeams,
+              state: league.state,
+              teamCount: league.teams.length,
+              maxTeams: league.maxTeams,
+              registrationClosesAt: league.registrationClosesAt,
+            }) && (
+              <LookingForTeamsBadge
+                spotsRemaining={Math.max(
+                  0,
+                  league.maxTeams - league.teams.length,
+                )}
+              />
+            )}
+          </div>
+          <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Visibility
+              </dt>
+              <dd className="mt-1.5">
+                <VisibilityPill visibility={league.visibility} />
+              </dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Looking for teams
+              </dt>
+              <dd className="mt-1.5 text-sm">
+                {league.lookingForTeams ? (
+                  <span className="text-foreground">On</span>
+                ) : (
+                  <span className="text-foreground-subtle">Off</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Registration closes
+              </dt>
+              <dd className="mt-1.5 text-sm">
+                {league.registrationClosesAt ? (
+                  <>
+                    <span>
+                      {league.registrationClosesAt.toLocaleString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span className="ml-2">
+                      <RegistrationStatus
+                        closesAt={league.registrationClosesAt}
+                        compact
+                      />
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-foreground-subtle">No deadline</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Scheduled start
+              </dt>
+              <dd className="mt-1.5 text-sm">
+                {league.startsAt ? (
+                  league.startsAt.toLocaleString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })
+                ) : (
+                  <span className="text-foreground-subtle">Not scheduled</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
         {canEdit && (
           <section className="mt-6">
             <EditLeagueButton
@@ -370,6 +465,11 @@ export default async function ManageLeaguePage({ params }: Props) {
                 payoutPreset: league.payoutPreset,
                 paymentInstructions: league.paymentInstructions,
                 prizeNotes: league.prizeNotes,
+                // v1.6: visibility + scheduling.
+                visibility: league.visibility,
+                registrationClosesAt: league.registrationClosesAt,
+                startsAt: league.startsAt,
+                lookingForTeams: league.lookingForTeams,
               }}
               teamCount={league.teams.length}
             />

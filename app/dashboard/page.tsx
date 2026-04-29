@@ -7,8 +7,11 @@ import { prisma } from "@/lib/db/prisma";
 import { Button } from "@/components/ui/button";
 import { ActionQueue, type ActionQueueItem } from "@/components/action-queue";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { LookingForTeamsBadge } from "@/components/looking-for-teams-badge";
+import { RegistrationStatus } from "@/components/registration-status";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { shouldShowLookingForTeams } from "@/lib/league-access";
 
 const paymentLabel: Record<PaymentStatus, string> = {
   PENDING: "Payment pending",
@@ -315,6 +318,23 @@ export default async function DashboardPage() {
                               value={`${league._count.teams} / ${league.maxTeams}`}
                             />
                           </dl>
+                          {/* v1.6: scheduling info on the card. */}
+                          <ScheduleLines
+                            startsAt={league.startsAt}
+                            registrationClosesAt={league.registrationClosesAt}
+                            showLft={shouldShowLookingForTeams({
+                              lookingForTeams: league.lookingForTeams,
+                              state: league.state,
+                              teamCount: league._count.teams,
+                              maxTeams: league.maxTeams,
+                              registrationClosesAt:
+                                league.registrationClosesAt,
+                            })}
+                            spotsRemaining={Math.max(
+                              0,
+                              league.maxTeams - league._count.teams,
+                            )}
+                          />
                         </article>
                       </Link>
                     </li>
@@ -374,6 +394,26 @@ export default async function DashboardPage() {
                                 value={`${team.league._count.teams} / ${team.league.maxTeams}`}
                               />
                             </dl>
+                            {/* v1.6: scheduling info — captain's view. */}
+                            <ScheduleLines
+                              startsAt={team.league.startsAt}
+                              registrationClosesAt={
+                                team.league.registrationClosesAt
+                              }
+                              showLft={shouldShowLookingForTeams({
+                                lookingForTeams: team.league.lookingForTeams,
+                                state: team.league.state,
+                                teamCount: team.league._count.teams,
+                                maxTeams: team.league.maxTeams,
+                                registrationClosesAt:
+                                  team.league.registrationClosesAt,
+                              })}
+                              spotsRemaining={Math.max(
+                                0,
+                                team.league.maxTeams -
+                                  team.league._count.teams,
+                              )}
+                            />
                           </article>
                         </Link>
                       </li>
@@ -527,6 +567,44 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="flex items-center gap-1.5">
       <dt className="text-foreground-subtle">{label}</dt>
       <dd className="font-mono text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+// v1.6: tiny helper component that surfaces scheduling info on dashboard
+// cards. Renders nothing when none of the fields apply, so the card
+// layout stays unchanged for legacy leagues.
+function ScheduleLines({
+  startsAt,
+  registrationClosesAt,
+  showLft,
+  spotsRemaining,
+}: {
+  startsAt: Date | null;
+  registrationClosesAt: Date | null;
+  showLft: boolean;
+  spotsRemaining: number;
+}) {
+  const hasAnything = !!startsAt || !!registrationClosesAt || showLft;
+  if (!hasAnything) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-3">
+      {startsAt && (
+        <span className="font-mono text-[11px] text-foreground-muted">
+          Starts{" "}
+          {startsAt.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </span>
+      )}
+      {registrationClosesAt && (
+        <RegistrationStatus closesAt={registrationClosesAt} compact />
+      )}
+      {showLft && <LookingForTeamsBadge spotsRemaining={spotsRemaining} />}
     </div>
   );
 }

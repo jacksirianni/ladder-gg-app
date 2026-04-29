@@ -320,6 +320,12 @@ export async function duplicateLeagueAction(formData: FormData) {
       organizerId: user.id,
       // v1.5: inherit the season so "Run it back" continues the series.
       seasonId: source.seasonId,
+      // v1.6: preserve access policy and recruitment signal — these are
+      // the organizer's preferences, not calendar-specific. The two
+      // datetimes are intentionally NOT carried forward; they applied
+      // to the source's run, not this one.
+      visibility: source.visibility,
+      lookingForTeams: source.lookingForTeams,
     },
     select: { slug: true },
   });
@@ -357,6 +363,11 @@ export async function updateLeagueAction(
     payoutPreset: String(formData.get("payoutPreset") ?? "WTA"),
     paymentInstructions: String(formData.get("paymentInstructions") ?? ""),
     prizeNotes: String(formData.get("prizeNotes") ?? ""),
+    // v1.6: visibility + scheduling.
+    visibility: String(formData.get("visibility") ?? league.visibility),
+    registrationClosesAt: String(formData.get("registrationClosesAt") ?? ""),
+    startsAt: String(formData.get("startsAt") ?? ""),
+    lookingForTeams: formData.get("lookingForTeams") ?? undefined,
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -400,6 +411,11 @@ export async function updateLeagueAction(
       payoutPreset: parsed.data.payoutPreset,
       paymentInstructions: parsed.data.paymentInstructions ?? null,
       prizeNotes: parsed.data.prizeNotes ?? null,
+      // v1.6: visibility + scheduling.
+      visibility: parsed.data.visibility,
+      registrationClosesAt: parsed.data.registrationClosesAt ?? null,
+      startsAt: parsed.data.startsAt ?? null,
+      lookingForTeams: parsed.data.lookingForTeams,
     },
   });
 

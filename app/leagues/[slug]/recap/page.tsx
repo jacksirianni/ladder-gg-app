@@ -23,12 +23,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const league = await prisma.league.findUnique({
     where: { slug },
-    select: { name: true, state: true },
+    select: { name: true, state: true, visibility: true },
   });
   if (!league || league.state === "DRAFT") return {};
+  // v1.6: respect visibility for crawlers — same policy as the league page.
+  const robots =
+    league.visibility === "INVITE_ONLY"
+      ? { index: false, follow: false }
+      : league.visibility === "UNLISTED"
+        ? { index: true, follow: false }
+        : { index: true, follow: true };
   return {
     title: `${league.name} — Recap`,
     description: `How ${league.name} played out on LADDER.gg.`,
+    robots,
   };
 }
 

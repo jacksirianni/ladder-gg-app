@@ -38,6 +38,21 @@ enum MatchStatus {
   ORGANIZER_DECIDED
 }
 
+// v1.6: how captains are allowed to find / join a league. Distinct from
+// LeagueState (which models lifecycle) — visibility is a join-policy
+// switch the organizer flips independently of the bracket lifecycle.
+enum LeagueVisibility {
+  // Public page renders, but the page is noindex/nofollow and excluded
+  // from the sitemap. Captains need an invite link to register.
+  INVITE_ONLY
+  // Public page is indexable but not actively promoted. Captains still
+  // need an invite link to register. Default for existing rows.
+  UNLISTED
+  // Public page is indexable. Anyone signed in can register a team
+  // directly from the public page while spots remain.
+  OPEN_JOIN
+}
+
 model User {
   id                       String        @id @default(cuid())
   email                    String        @unique
@@ -109,18 +124,28 @@ model League {
   payoutPreset         PayoutPreset @default(WTA)
   paymentInstructions  String?
   prizeNotes           String?
-  state                LeagueState  @default(DRAFT)
+  state                LeagueState      @default(DRAFT)
+  // v1.6: how captains can join. UNLISTED keeps existing behavior for
+  // legacy rows (public page works, invite token required to join).
+  visibility           LeagueVisibility @default(UNLISTED)
   organizerId          String
   // v1.5: optional grouping with other leagues from the same organizer.
   seasonId             String?
-  inviteToken          String       @unique
+  inviteToken          String           @unique
   publishedAt          DateTime?
   registrationClosesAt DateTime?
+  // v1.6: scheduled start time. Distinct from `startedAt`, which records
+  // when the bracket was actually generated. Informational — we don't
+  // enforce or block on it.
+  startsAt             DateTime?
+  // v1.6: organizer-toggled signal that the league wants more teams.
+  // Display logic in the UI also gates this on state/capacity/deadline.
+  lookingForTeams      Boolean          @default(false)
   startedAt            DateTime?
   completedAt          DateTime?
   cancelledAt          DateTime?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
   organizer User    @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   season    Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)

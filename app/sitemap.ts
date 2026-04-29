@@ -38,7 +38,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     [leagues, seasons, users] = await Promise.all([
       prisma.league.findMany({
-        where: { state: { in: ["OPEN", "IN_PROGRESS", "COMPLETED"] } },
+        where: {
+          state: { in: ["OPEN", "IN_PROGRESS", "COMPLETED"] },
+          // v1.6: INVITE_ONLY leagues opt out of indexing entirely.
+          // UNLISTED stays in the sitemap (organizer can still share
+          // the link; we just don't crawl onward links from the page).
+          visibility: { in: ["UNLISTED", "OPEN_JOIN"] },
+        },
         select: { slug: true, updatedAt: true },
         orderBy: { updatedAt: "desc" },
       }),

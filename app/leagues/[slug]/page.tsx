@@ -11,16 +11,25 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { BracketView } from "@/components/bracket-view";
+import { Button } from "@/components/ui/button";
 import { ChampionHero } from "@/components/champion-hero";
 import { ConfirmButton } from "@/components/confirm-button";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { LookingForTeamsBadge } from "@/components/looking-for-teams-badge";
 import { ProfileLink } from "@/components/profile-link";
+import { RegistrationStatus } from "@/components/registration-status";
 import { SampleBracketPreview } from "@/components/sample-bracket-preview";
 import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { TeamCard } from "@/components/team-card";
 import { ViewerCta } from "@/components/viewer-cta";
+import { VisibilityPill } from "@/components/visibility-pill";
+import {
+  canJoinLeague,
+  shouldShowLookingForTeams,
+} from "@/lib/league-access";
+import Link from "next/link";
 import { MatchesTab } from "./matches-tab";
 import { leaveTeamAction } from "./actions";
 import { EditTeamButton } from "./edit-team-modal";
@@ -48,15 +57,35 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const league = await prisma.league.findUnique({
     where: { slug },
-    include: { _count: { select: { teams: true } } },
+    select: {
+      name: true,
+      game: true,
+      maxTeams: true,
+      state: true,
+      visibility: true,
+      _count: { select: { teams: true } },
+    },
   });
   if (!league || league.state === "DRAFT") {
     return {};
   }
   const description = `${league.game} · ${league._count.teams}/${league.maxTeams} teams · ${stateLabel[league.state]}`;
+
+  // v1.6: respect visibility for crawlers.
+  // - INVITE_ONLY → noindex, nofollow (don't surface to search; don't pass link equity)
+  // - UNLISTED    → index, nofollow (findable if linked, but don't crawl onward links)
+  // - OPEN_JOIN   → index, follow (default)
+  const robots =
+    league.visibility === "INVITE_ONLY"
+      ? { index: false, follow: false }
+      : league.visibility === "UNLISTED"
+        ? { index: true, follow: false }
+        : { index: true, follow: true };
+
   return {
     title: league.name,
     description,
+    robots,
     openGraph: {
       title: league.name,
       description,
@@ -194,6 +223,7 @@ export default async function PublicLeaguePage({
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 md:px-12">
         <div className="flex flex-wrap items-center gap-3">
           <LeagueStateBadge state={league.state} />
+          <VisibilityPill visibility={league.visibility} />
           <span className="font-mono text-xs text-foreground-subtle">
             {league.game}
           </span>
@@ -217,41 +247,142 @@ export default async function PublicLeaguePage({
           </ProfileLink>
         </p>
 
-        {/* v1.4: OPEN-state hero highlights registration progress + format. */}
-        {league.state === "OPEN" && (
-          <section
-            className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 px-5 py-4"
-            aria-label="Registration open"
-          >
-            <div className="min-w-0">
-              <p className="font-mono text-xs uppercase tracking-widest text-primary">
-                Registration open
-              </p>
-              <p className="mt-1 text-sm">
-                <span className="font-semibold">
-                  {league.teams.length} of {league.maxTeams}
-                </span>{" "}
-                teams registered
-                <span className="text-foreground-subtle"> · </span>
-                <span className="font-mono text-xs">
-                  {league.teamSize === 1
-                    ? "1v1"
-                    : `${league.teamSize}v${league.teamSize}`}
-                </span>
-                <span className="text-foreground-subtle"> · </span>
-                <span>
-                  Entry $
-                  {(league.buyInCents / 100).toFixed(2)}
-                </span>
-              </p>
-            </div>
-            {!captainTeam && league.teams.length < league.maxTeams && (
-              <p className="font-mono text-xs text-foreground-subtle">
-                Captains: ask the organizer for the invite link.
-              </p>
-            )}
-          </section>
-        )}
+        {/* v1.4 + v1.6: OPEN-state hero. Now surfaces visibility, deadline,
+            schedule, recruitment signal, and a state-aware join CTA. */}
+        {league.state === "OPEN" && (() => {
+          const teamCount = league.teams.length;
+          const spotsRemaining = Math.max(0, league.maxTeams - teamCount);
+          const showLft = shouldShowLookingForTeams({
+            lookingForTeams: league.lookingForTeams,
+            state: league.state,
+            teamCount,
+            maxTeams: league.maxTeams,
+            registrationClosesAt: league.registrationClosesAt,
+          });
+          // Use canJoinLeague for the CTA decision so display and action
+          // can never disagree about whether the button should work.
+          const access = canJoinLeague(
+            {
+              state: league.state,
+              visibility: league.visibility,
+              inviteToken: league.inviteToken,
+              maxTeams: league.maxTeams,
+              registrationClosesAt: league.registrationClosesAt,
+            },
+            {
+              viewerId,
+              viewerHasTeam: !!captainTeam,
+              token: "",
+              teamCount,
+            },
+          );
+          const canJoinNow = access.kind === "ALLOW";
+          const headlineEyebrow =
+            league.visibility === "OPEN_JOIN"
+              ? "Open registration"
+              : "Registration open";
+
+          return (
+            <section
+              className="mt-6 flex flex-col gap-4 rounded-lg border border-primary/30 bg-primary/5 px-5 py-4"
+              aria-label="Registration open"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs uppercase tracking-widest text-primary">
+                    {headlineEyebrow}
+                  </p>
+                  <p className="mt-1 text-sm">
+                    <span className="font-semibold">
+                      {teamCount} of {league.maxTeams}
+                    </span>{" "}
+                    teams registered
+                    <span className="text-foreground-subtle"> · </span>
+                    <span className="font-mono text-xs">
+                      {league.teamSize === 1
+                        ? "1v1"
+                        : `${league.teamSize}v${league.teamSize}`}
+                    </span>
+                    <span className="text-foreground-subtle"> · </span>
+                    <span>
+                      Entry ${(league.buyInCents / 100).toFixed(2)}
+                    </span>
+                  </p>
+                </div>
+                {showLft && (
+                  <LookingForTeamsBadge spotsRemaining={spotsRemaining} />
+                )}
+              </div>
+
+              {/* Trust line: explicit about who can actually join. */}
+              {league.visibility === "OPEN_JOIN" && (
+                <p className="text-xs text-foreground-muted">
+                  Anyone with this link can join.
+                </p>
+              )}
+
+              {/* Deadline + scheduled start, when set. */}
+              {(league.registrationClosesAt || league.startsAt) && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <RegistrationStatus closesAt={league.registrationClosesAt} />
+                  {league.startsAt && (
+                    <p className="font-mono text-xs text-foreground-muted">
+                      Starts{" "}
+                      {league.startsAt.toLocaleString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Join CTA — branches by visibility + access result. */}
+              {!captainTeam && (
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  {league.visibility === "OPEN_JOIN" ? (
+                    canJoinNow ? (
+                      <Button asChild size="sm">
+                        <Link href={`/leagues/${league.slug}/join`}>
+                          Join this league
+                        </Link>
+                      </Button>
+                    ) : access.kind === "BLOCK_DEADLINE" ? (
+                      <Button size="sm" disabled>
+                        Registration closed
+                      </Button>
+                    ) : access.kind === "BLOCK_FULL" ? (
+                      <Button size="sm" disabled>
+                        League full
+                      </Button>
+                    ) : access.kind === "BLOCK_NEEDS_AUTH" ? (
+                      <Button asChild size="sm">
+                        <Link
+                          href={`/signin?redirectTo=${encodeURIComponent(
+                            `/leagues/${league.slug}/join`,
+                          )}`}
+                        >
+                          Sign in to join
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button size="sm" disabled>
+                        Registration not open
+                      </Button>
+                    )
+                  ) : (
+                    <p className="font-mono text-xs text-foreground-subtle">
+                      Captains need an invite link from the organizer to join.
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          );
+        })()}
 
         {captainTeam && (
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface px-5 py-4">

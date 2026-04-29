@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ChipPicker } from "@/components/chip-picker";
 import { PaymentTemplatePicker } from "@/components/payment-template-picker";
+import { RegistrationAccessFields } from "@/components/registration-access-fields";
 import {
   createLeagueAction,
   type CreateLeagueActionState,
@@ -235,6 +236,9 @@ export function CreateLeagueForm({ existingSeasonNames = [] }: Props) {
           rows={3}
         />
       </FormField>
+
+      {/* v1.6: visibility + scheduling controls */}
+      <RegistrationAccessFields fieldErrors={state.fieldErrors} />
 
       {state.error && (
         <p className="text-sm text-destructive">{state.error}</p>

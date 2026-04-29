@@ -47,7 +47,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     select: {
       round: true,
       bracketPosition: true,
-      league: { select: { slug: true, name: true, state: true } },
+      league: {
+        select: { slug: true, name: true, state: true, visibility: true },
+      },
       teamA: { select: { name: true } },
       teamB: { select: { name: true } },
     },
@@ -58,9 +60,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const a = match.teamA?.name ?? "TBD";
   const b = match.teamB?.name ?? "TBD";
   const title = `${a} vs ${b} — ${match.league.name}`;
+  // v1.6: respect parent league's visibility for crawlers.
+  const robots =
+    match.league.visibility === "INVITE_ONLY"
+      ? { index: false, follow: false }
+      : match.league.visibility === "UNLISTED"
+        ? { index: true, follow: false }
+        : { index: true, follow: true };
   return {
     title,
     description: `Round ${match.round}, Match ${match.bracketPosition} on LADDER.gg.`,
+    robots,
   };
 }
 
