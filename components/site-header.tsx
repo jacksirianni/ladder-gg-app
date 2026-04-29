@@ -19,6 +19,13 @@ export async function SiteHeader() {
 
       {user ? (
         <div className="flex items-center gap-2 md:gap-3">
+          {/* v2.0-E: Explore — public discovery of OPEN_JOIN leagues. */}
+          <Link
+            href="/explore"
+            className="hidden rounded-md px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:inline-block"
+          >
+            Explore
+          </Link>
           <Button asChild variant="secondary" size="sm">
             <Link href="/leagues/new">Create a league</Link>
           </Button>
@@ -45,6 +52,14 @@ export async function SiteHeader() {
         </div>
       ) : (
         <div className="flex items-center gap-2 md:gap-4">
+          {/* v2.0-E: Explore link is also reachable for signed-out
+              visitors so they can discover leagues before signing up. */}
+          <Link
+            href="/explore"
+            className="rounded-md px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            Explore
+          </Link>
           <Link
             href="/signin"
             className="rounded-md px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"

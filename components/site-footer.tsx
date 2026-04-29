@@ -24,6 +24,14 @@ export function SiteFooter() {
           aria-label="Footer"
           className="flex flex-wrap items-center gap-4 text-xs"
         >
+          {/* v2.0-E: explore is the only "discovery" link in the
+              footer — the rest is feedback/legal. */}
+          <Link
+            href="/explore"
+            className="text-foreground-muted transition-colors hover:text-foreground"
+          >
+            Explore
+          </Link>
           <a
             href={mailto}
             className="text-foreground-muted transition-colors hover:text-foreground"

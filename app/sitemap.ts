@@ -74,6 +74,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 1.0,
     },
     {
+      // v2.0-E: explore page — public discovery of OPEN_JOIN leagues.
+      url: `${BASE_URL}/explore`,
+      lastModified: now,
+      changeFrequency: "daily",
+      priority: 0.8,
+    },
+    {
       url: `${BASE_URL}/signin`,
       lastModified: now,
       changeFrequency: "yearly",
