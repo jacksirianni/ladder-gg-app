@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CopyMessageBox } from "@/components/copy-message-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
+import { Avatar } from "@/components/avatar";
 import { ProfileLink } from "@/components/profile-link";
 import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
@@ -51,7 +52,9 @@ export default async function LeagueRecapPage({ params }: Props) {
       teams: {
         orderBy: { createdAt: "asc" },
         include: {
-          captain: { select: { displayName: true, handle: true } },
+          captain: {
+            select: { displayName: true, handle: true, avatarUrl: true },
+          },
           roster: { orderBy: { position: "asc" } },
         },
       },
@@ -262,15 +265,22 @@ export default async function LeagueRecapPage({ params }: Props) {
           {winnerTeam?.name ?? "—"}
         </h1>
         {winnerTeam && (
-          <p className="mt-3 text-base text-foreground-muted">
-            Captained by{" "}
-            <ProfileLink
-              handle={winnerTeam.captain.handle}
-              className="text-foreground"
-            >
-              {winnerTeam.captain.displayName}
-            </ProfileLink>
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-base text-foreground-muted">
+            <span>Captained by</span>
+            <span className="inline-flex items-center gap-2">
+              <Avatar
+                src={winnerTeam.captain.avatarUrl}
+                name={winnerTeam.captain.displayName}
+                size="sm"
+              />
+              <ProfileLink
+                handle={winnerTeam.captain.handle}
+                className="text-foreground"
+              >
+                {winnerTeam.captain.displayName}
+              </ProfileLink>
+            </span>
+          </div>
         )}
         <p className="mt-1 text-sm text-foreground-subtle">
           {league.name}

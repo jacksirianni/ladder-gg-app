@@ -7,6 +7,7 @@ import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { externalProfileSchema } from "@/lib/validators/external-profile";
 import { changeHandleSchema } from "@/lib/validators/handle";
+import { updateProfileSchema } from "@/lib/validators/user";
 import { HANDLE_HISTORY_GRACE_MS } from "@/lib/handle";
 import { setFlashToast } from "@/lib/toast";
 
@@ -282,4 +283,56 @@ class HandleTakenError extends Error {
   constructor() {
     super("Handle taken");
   }
+}
+
+// ---------------------------------------------------------------
+// v2.0: profile (avatar URL + bio)
+// ---------------------------------------------------------------
+
+export type UpdateProfileState = {
+  error?: string;
+  success?: boolean;
+  fieldErrors?: Record<string, string>;
+};
+
+/**
+ * Update the current user's avatar URL + bio. Avatar URL comes from
+ * /api/upload-avatar (Vercel Blob); the bio is plain text capped at
+ * 200 characters.
+ *
+ * Either field can be cleared by submitting an empty value.
+ */
+export async function updateProfileAction(
+  _prev: UpdateProfileState,
+  formData: FormData,
+): Promise<UpdateProfileState> {
+  const user = await requireAuth();
+
+  const parsed = updateProfileSchema.safeParse({
+    avatarUrl: String(formData.get("avatarUrl") ?? ""),
+    bio: String(formData.get("bio") ?? ""),
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const path = issue.path[0];
+      if (typeof path === "string" && !fieldErrors[path]) {
+        fieldErrors[path] = issue.message;
+      }
+    }
+    return { fieldErrors };
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      avatarUrl: parsed.data.avatarUrl ?? null,
+      bio: parsed.data.bio ?? null,
+    },
+  });
+
+  revalidatePath("/account");
+  if (user.handle) revalidatePath(`/p/${user.handle}`);
+  await setFlashToast({ kind: "success", message: "Profile saved." });
+  return { success: true };
 }

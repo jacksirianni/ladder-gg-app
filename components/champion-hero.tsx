@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { ProfileLink } from "@/components/profile-link";
 import { duplicateLeagueAction } from "@/app/leagues/[slug]/manage/actions";
@@ -6,7 +7,12 @@ import { duplicateLeagueAction } from "@/app/leagues/[slug]/manage/actions";
 type WinnerTeam = {
   id: string;
   name: string;
-  captain: { displayName: string; handle?: string | null };
+  captain: {
+    displayName: string;
+    handle?: string | null;
+    // v2.0: optional avatar URL.
+    avatarUrl?: string | null;
+  };
   roster: { displayName: string; position: number }[];
 };
 
@@ -46,15 +52,22 @@ export function ChampionHero({
       <h2 className="mt-4 text-4xl font-bold leading-[1.05] tracking-tight text-success md:text-6xl">
         {winnerTeam.name}
       </h2>
-      <p className="mt-3 text-base text-foreground-muted">
-        Captained by{" "}
-        <ProfileLink
-          handle={winnerTeam.captain.handle}
-          className="text-foreground"
-        >
-          {winnerTeam.captain.displayName}
-        </ProfileLink>
-      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-base text-foreground-muted">
+        <span>Captained by</span>
+        <span className="inline-flex items-center gap-2">
+          <Avatar
+            src={winnerTeam.captain.avatarUrl}
+            name={winnerTeam.captain.displayName}
+            size="sm"
+          />
+          <ProfileLink
+            handle={winnerTeam.captain.handle}
+            className="text-foreground"
+          >
+            {winnerTeam.captain.displayName}
+          </ProfileLink>
+        </span>
+      </div>
 
       {winnerTeam.roster.length > 0 && (
         <ul className="mt-5 flex flex-wrap gap-2">

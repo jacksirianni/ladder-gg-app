@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import type { ExternalPlatform, LeagueState } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { Avatar } from "@/components/avatar";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -151,19 +152,32 @@ export default async function PlayerProfilePage({ params }: Props) {
     <>
       <SiteHeader />
       <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 md:px-12">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-              Player
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-              {user.displayName}
-            </h1>
-            <p className="mt-1 font-mono text-xs text-foreground-subtle">
-              @{user.handle}
-            </p>
+        {/* v2.0: avatar + bio header. */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <Avatar
+              src={user.avatarUrl}
+              name={user.displayName}
+              size="xl"
+            />
+            <div className="min-w-0">
+              <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                Player
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
+                {user.displayName}
+              </h1>
+              <p className="mt-1 font-mono text-xs text-foreground-subtle">
+                @{user.handle}
+              </p>
+            </div>
           </div>
         </div>
+        {user.bio && (
+          <p className="mt-4 max-w-2xl text-sm text-foreground-muted">
+            {user.bio}
+          </p>
+        )}
 
         {/* Stats row */}
         <section className="mt-8 grid gap-3 grid-cols-2 sm:grid-cols-4">

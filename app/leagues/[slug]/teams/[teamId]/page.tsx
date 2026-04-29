@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Avatar } from "@/components/avatar";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { ProfileLink } from "@/components/profile-link";
 import { SeasonPill } from "@/components/season-pill";
@@ -72,7 +73,14 @@ export default async function TeamPage({ params }: Props) {
   const team = await prisma.team.findUnique({
     where: { id: teamId },
     include: {
-      captain: { select: { id: true, displayName: true, handle: true } },
+      captain: {
+        select: {
+          id: true,
+          displayName: true,
+          handle: true,
+          avatarUrl: true,
+        },
+      },
       roster: { orderBy: { position: "asc" } },
       league: {
         select: {
@@ -186,15 +194,20 @@ export default async function TeamPage({ params }: Props) {
             {team.league.name}
           </Link>
         </p>
-        <p className="mt-2 text-sm text-foreground-subtle">
-          Captained by{" "}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-foreground-subtle">
+          <span>Captained by</span>
+          <Avatar
+            src={team.captain.avatarUrl}
+            name={team.captain.displayName}
+            size="sm"
+          />
           <ProfileLink
             handle={team.captain.handle}
             className="text-foreground-muted"
           >
             {team.captain.displayName}
           </ProfileLink>
-        </p>
+        </div>
 
         {/* Roster */}
         {team.roster.length > 0 && (

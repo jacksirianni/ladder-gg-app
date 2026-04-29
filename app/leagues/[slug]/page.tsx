@@ -118,12 +118,21 @@ export default async function PublicLeaguePage({
   const league = await prisma.league.findUnique({
     where: { slug },
     include: {
-      organizer: { select: { id: true, displayName: true, handle: true } },
+      organizer: {
+        select: { id: true, displayName: true, handle: true, avatarUrl: true },
+      },
       season: { select: { slug: true, name: true } },
       teams: {
         orderBy: { createdAt: "asc" },
         include: {
-          captain: { select: { id: true, displayName: true, handle: true } },
+          captain: {
+            select: {
+              id: true,
+              displayName: true,
+              handle: true,
+              avatarUrl: true,
+            },
+          },
           roster: { orderBy: { position: "asc" } },
         },
       },
@@ -452,6 +461,7 @@ export default async function PublicLeaguePage({
               captain: {
                 displayName: winnerTeam.captain.displayName,
                 handle: winnerTeam.captain.handle,
+                avatarUrl: winnerTeam.captain.avatarUrl,
               },
               roster: winnerTeam.roster.map((r) => ({
                 displayName: r.displayName,

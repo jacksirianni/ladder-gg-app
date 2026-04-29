@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChangeHandleForm } from "@/components/change-handle-form";
 import { ExternalProfilesManager } from "@/components/external-profiles-manager";
+import { ProfileEditForm } from "@/components/profile-edit-form";
 import { prisma } from "@/lib/db/prisma";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -60,6 +61,26 @@ export default async function AccountPage() {
               <p className="mt-1 font-mono text-sm">{user.email}</p>
             </div>
           </Card>
+        </section>
+
+        {/* v2.0: avatar + bio editor. */}
+        <section className="mt-10">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            Avatar &amp; bio
+          </h2>
+          <p className="mt-2 text-sm text-foreground-muted">
+            Shown on your public profile and next to your name in
+            brackets and team cards. Both are optional.
+          </p>
+          <div className="mt-4">
+            <ProfileEditForm
+              user={{
+                displayName: user.displayName,
+                avatarUrl: user.avatarUrl,
+                bio: user.bio,
+              }}
+            />
+          </div>
         </section>
 
         <section className="mt-10">

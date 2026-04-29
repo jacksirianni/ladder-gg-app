@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PaymentStatus } from "@prisma/client";
+import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { ProfileLink } from "@/components/profile-link";
@@ -8,7 +9,11 @@ type TeamForCard = {
   id: string;
   name: string;
   paymentStatus: PaymentStatus;
-  captain: { displayName: string; handle?: string | null };
+  captain: {
+    displayName: string;
+    handle?: string | null;
+    avatarUrl?: string | null;
+  };
   roster: { displayName: string; position: number }[];
 };
 
@@ -53,12 +58,17 @@ export function TeamCard({ team, showPayment, leagueSlug }: Props) {
               team.name
             )}
           </h3>
-          <p className="mt-1 text-sm text-foreground-muted">
-            Captain:{" "}
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-foreground-muted">
+            <span>Captain:</span>
+            <Avatar
+              src={team.captain.avatarUrl}
+              name={team.captain.displayName}
+              size="xs"
+            />
             <ProfileLink handle={team.captain.handle} className="text-foreground">
               {team.captain.displayName}
             </ProfileLink>
-          </p>
+          </div>
         </div>
         {showPayment && (
           <Badge variant={paymentVariant[team.paymentStatus]}>

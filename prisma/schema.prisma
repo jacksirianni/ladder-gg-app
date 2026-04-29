@@ -128,6 +128,9 @@ model User {
   // v1.5: short URL handle for `/p/[handle]`. Nullable in schema so existing
   // rows can be backfilled; runtime always populates for new signups.
   handle                   String?               @unique
+  // v2.0: avatar URL (Vercel Blob) + 200-char bio. Display-only.
+  avatarUrl                String?
+  bio                      String?
   ageConfirmed             Boolean               @default(false)
   stripeConnectedAccountId String?
   accounts                 Account[]
