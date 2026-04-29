@@ -117,6 +117,9 @@ model User {
   evidenceSubmitted        MatchEvidence[]       @relation("EvidenceSubmitter")
   // v1.7: external profile links (BattleTag, Tracker.gg, Riot ID, etc.).
   externalProfiles         UserExternalProfile[]
+  // v1.8: handle history — keeps old `/p/[handle]` links working for a
+  // grace period after the user changes their handle.
+  handleHistory            UserHandleHistory[]
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 }
@@ -339,6 +342,22 @@ model MatchEvidence {
 
   @@index([matchId])
   @@index([submittedByUserId])
+}
+
+// v1.8: when a user changes their handle, the old handle is moved into
+// this table with a grace-period TTL. Lookups for `/p/[handle]` fall
+// back here when not in `User`, returning a permanent redirect to the
+// user's current handle. Old shared links keep working.
+model UserHandleHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  handle    String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // v1.7: external profile link (BattleTag, Tracker.gg URL, Riot ID, etc.)

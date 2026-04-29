@@ -615,7 +615,11 @@ export default async function PublicLeaguePage({
                     const showPayment = isOrganizer || isOwnTeam;
                     return (
                       <li key={team.id}>
-                        <TeamCard team={team} showPayment={showPayment} />
+                        <TeamCard
+                          team={team}
+                          showPayment={showPayment}
+                          leagueSlug={league.slug}
+                        />
                       </li>
                     );
                   })}

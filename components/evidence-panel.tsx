@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { EvidenceKind } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,6 +184,14 @@ export function EvidencePanel({ defaults, description, compact }: Props) {
                   Remove
                 </Button>
               </div>
+              {/* v1.8: native upload for SCREENSHOT rows — file picker
+                  uploads to /api/upload-evidence and writes the
+                  returned URL into the row's `url` field. */}
+              {row.kind === "SCREENSHOT" && (
+                <ScreenshotUploader
+                  onUploaded={(url) => update(i, { url })}
+                />
+              )}
               <Input
                 value={row.caption}
                 onChange={(e) => update(i, { caption: e.target.value })}
@@ -219,5 +227,79 @@ export function EvidencePanel({ defaults, description, compact }: Props) {
         </div>
       )}
     </fieldset>
+  );
+}
+
+/**
+ * v1.8: a small file-picker affordance that uploads to
+ * /api/upload-evidence and reports back the resulting URL. Renders
+ * inline next to the URL input so captains can drag-or-pick instead of
+ * pasting an imgur link.
+ */
+function ScreenshotUploader({
+  onUploaded,
+}: {
+  onUploaded: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setPending(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload-evidence", {
+        method: "POST",
+        body: fd,
+      });
+      const json = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !json.url) {
+        setError(json.error ?? "Upload failed.");
+        return;
+      }
+      onUploaded(json.url);
+    } catch {
+      setError("Upload failed. Try again.");
+    } finally {
+      setPending(false);
+      // Reset the input so re-selecting the same file fires onChange.
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={handleChange}
+        className="hidden"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => inputRef.current?.click()}
+        disabled={pending}
+      >
+        {pending ? "Uploading…" : "Upload image"}
+      </Button>
+      <span className="font-mono text-[11px] text-foreground-subtle">
+        or paste a URL above
+      </span>
+      {error && (
+        <span className="font-mono text-[11px] text-destructive">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }

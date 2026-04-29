@@ -10,6 +10,7 @@ import {
 } from "@/lib/validators/match";
 import { createTeamSchema } from "@/lib/validators/team";
 import { deriveBracketSide, validateScore } from "@/lib/match-format";
+import { setFlashToast } from "@/lib/toast";
 
 export type MatchActionState = {
   error?: string;
@@ -173,6 +174,7 @@ export async function submitMatchReportAction(
 
   revalidatePath(`/leagues/${match.league.slug}`);
   revalidatePath(`/leagues/${match.league.slug}/manage`);
+  await setFlashToast({ kind: "success", message: "Result reported." });
   return {};
 }
 
@@ -288,6 +290,7 @@ export async function confirmMatchAction(
   revalidatePath(`/leagues/${slug}`);
   revalidatePath(`/leagues/${slug}/manage`);
   revalidatePath("/dashboard");
+  await setFlashToast({ kind: "success", message: "Match confirmed." });
   return {};
 }
 
@@ -363,6 +366,10 @@ export async function disputeMatchAction(
 
   revalidatePath(`/leagues/${match.league.slug}`);
   revalidatePath(`/leagues/${match.league.slug}/manage`);
+  await setFlashToast({
+    kind: "warning",
+    message: "Match disputed — organizer will resolve.",
+  });
   return {};
 }
 
@@ -391,6 +398,7 @@ export async function leaveTeamAction(formData: FormData) {
   revalidatePath(`/leagues/${team.league.slug}`);
   revalidatePath(`/leagues/${team.league.slug}/manage`);
   revalidatePath("/dashboard");
+  await setFlashToast({ kind: "info", message: "Team removed." });
 
   redirect("/dashboard");
 }
@@ -455,5 +463,6 @@ export async function updateTeamAction(
   revalidatePath(`/leagues/${team.league.slug}/manage`);
   revalidatePath("/dashboard");
 
+  await setFlashToast({ kind: "success", message: "Team saved." });
   return { success: true };
 }

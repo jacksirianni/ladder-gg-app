@@ -6,6 +6,9 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { externalProfileSchema } from "@/lib/validators/external-profile";
+import { changeHandleSchema } from "@/lib/validators/handle";
+import { HANDLE_HISTORY_GRACE_MS } from "@/lib/handle";
+import { setFlashToast } from "@/lib/toast";
 
 export type ChangePasswordState = {
   error?: string;
@@ -63,6 +66,7 @@ export async function changePasswordAction(
     data: { passwordHash: newHash },
   });
 
+  await setFlashToast({ kind: "success", message: "Password changed." });
   return { success: true };
 }
 
@@ -124,6 +128,7 @@ export async function saveExternalProfileAction(
 
   revalidatePath("/account");
   if (user.handle) revalidatePath(`/p/${user.handle}`);
+  await setFlashToast({ kind: "success", message: "Profile saved." });
   return { success: true };
 }
 
@@ -151,4 +156,130 @@ export async function deleteExternalProfileAction(formData: FormData) {
 
   revalidatePath("/account");
   if (user.handle) revalidatePath(`/p/${user.handle}`);
+  await setFlashToast({ kind: "info", message: "Profile removed." });
+}
+
+// ---------------------------------------------------------------
+// v1.8: editable handles
+// ---------------------------------------------------------------
+
+export type ChangeHandleState = {
+  error?: string;
+  success?: boolean;
+  fieldErrors?: Record<string, string>;
+};
+
+/**
+ * Update the user's URL handle. The previous handle (if any) is moved
+ * to `UserHandleHistory` with a 60-day grace period so existing
+ * `/p/[handle]` links keep working — the public profile route will
+ * permanent-redirect from the old handle to the new one.
+ */
+export async function changeHandleAction(
+  _prev: ChangeHandleState,
+  formData: FormData,
+): Promise<ChangeHandleState> {
+  const user = await requireAuth();
+
+  const parsed = changeHandleSchema.safeParse({
+    handle: String(formData.get("handle") ?? ""),
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const path = issue.path[0];
+      if (typeof path === "string" && !fieldErrors[path]) {
+        fieldErrors[path] = issue.message;
+      }
+    }
+    return { fieldErrors };
+  }
+
+  const newHandle = parsed.data.handle;
+  if (newHandle === user.handle) {
+    // No-op — saves a transaction and avoids polluting history.
+    return { success: true };
+  }
+
+  // Atomic uniqueness + history move. A handle is "taken" if it's:
+  //   (a) the current handle of any User other than us, or
+  //   (b) parked in UserHandleHistory by another user and not yet expired.
+  // We allow reusing one of our own historical handles freely.
+  try {
+    await prisma.$transaction(async (tx) => {
+      const userCollision = await tx.user.findUnique({
+        where: { handle: newHandle },
+        select: { id: true },
+      });
+      if (userCollision && userCollision.id !== user.id) {
+        throw new HandleTakenError();
+      }
+
+      const now = new Date();
+      const historyCollision = await tx.userHandleHistory.findUnique({
+        where: { handle: newHandle },
+        select: { userId: true, expiresAt: true },
+      });
+      if (
+        historyCollision &&
+        historyCollision.userId !== user.id &&
+        historyCollision.expiresAt.getTime() > now.getTime()
+      ) {
+        throw new HandleTakenError();
+      }
+
+      // If the new handle exists in *our own* history, reclaim it
+      // (delete the history row to avoid the unique constraint).
+      if (historyCollision && historyCollision.userId === user.id) {
+        await tx.userHandleHistory.delete({
+          where: { handle: newHandle },
+        });
+      }
+
+      // Park the old handle in history (if we had one) so old links
+      // redirect to the new handle for the grace period.
+      if (user.handle) {
+        const expiresAt = new Date(now.getTime() + HANDLE_HISTORY_GRACE_MS);
+        await tx.userHandleHistory.upsert({
+          where: { handle: user.handle },
+          create: {
+            userId: user.id,
+            handle: user.handle,
+            expiresAt,
+          },
+          update: { expiresAt },
+        });
+      }
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: { handle: newHandle },
+      });
+    });
+  } catch (err) {
+    if (err instanceof HandleTakenError) {
+      return {
+        fieldErrors: { handle: "That handle is already taken." },
+      };
+    }
+    throw err;
+  }
+
+  // Revalidate the new + old profile URLs so anyone with cached pages
+  // gets fresh data on next request.
+  revalidatePath("/account");
+  revalidatePath(`/p/${newHandle}`);
+  if (user.handle) revalidatePath(`/p/${user.handle}`);
+
+  await setFlashToast({
+    kind: "success",
+    message: `Handle changed to @${newHandle}.`,
+  });
+  return { success: true };
+}
+
+class HandleTakenError extends Error {
+  constructor() {
+    super("Handle taken");
+  }
 }

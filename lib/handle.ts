@@ -8,6 +8,41 @@ const SUFFIX_LEN = 4;
 /** Hard cap on retries; mathematically we should never approach this. */
 const MAX_RETRIES = 5;
 
+/** v1.8: minimum / maximum total length of a user-chosen handle. */
+export const HANDLE_MIN = 3;
+export const HANDLE_MAX = 30;
+/** v1.8: regex for user-chosen handles. lowercase alnum + dashes only;
+ *  cannot start or end with a dash, no consecutive dashes. */
+export const HANDLE_PATTERN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){2,29}$/;
+/** v1.8: handles we won't let users grab — collisions with site routes. */
+export const RESERVED_HANDLES = new Set([
+  "account",
+  "admin",
+  "api",
+  "dashboard",
+  "leagues",
+  "league",
+  "p",
+  "seasons",
+  "season",
+  "signin",
+  "signup",
+  "signout",
+  "legal",
+  "support",
+  "help",
+  "about",
+  "404",
+  "robots",
+  "sitemap",
+  "ladder",
+  "www",
+  "settings",
+]);
+
+/** v1.8: how long we keep an old handle reachable after a rename. */
+export const HANDLE_HISTORY_GRACE_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+
 function slugifyDisplayName(input: string): string {
   const base = input
     .toLowerCase()

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { ExternalPlatform, LeagueState } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { LeagueStateBadge } from "@/components/league-state-badge";
@@ -40,6 +40,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function PlayerProfilePage({ params }: Props) {
   const { handle } = await params;
   const handleLower = handle.toLowerCase();
+
+  // v1.8: if the handle has been renamed, this URL hits handleHistory.
+  // Permanent-redirect to the user's current handle so old shared links
+  // resolve to the right page. Only honor non-expired history rows.
+  const now = new Date();
+  const historic = await prisma.userHandleHistory.findUnique({
+    where: { handle: handleLower },
+    select: {
+      expiresAt: true,
+      user: { select: { handle: true } },
+    },
+  });
+  if (
+    historic &&
+    historic.expiresAt.getTime() > now.getTime() &&
+    historic.user.handle &&
+    historic.user.handle !== handleLower
+  ) {
+    permanentRedirect(`/p/${historic.user.handle}`);
+  }
 
   const user = await prisma.user.findUnique({
     where: { handle: handleLower },

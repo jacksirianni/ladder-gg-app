@@ -4,10 +4,13 @@
  * Returns the full set of Match rows (round, position, teamA/B) needed to
  * represent the bracket. Total matches = N - 1 where N is team count.
  *
- * Bye placement: top `byes` randomly-shuffled teams skip round 1 and are
- * placed directly into round 2 slots, paired with round-1 winners when
- * available, or with each other when not. This is intentionally simpler than
- * a fully tournament-correct seed/bye placement — random shuffle covers it.
+ * Bye placement (v1.8 — fixed): bye teams are placed in the *last* slots
+ * of round 2, after all the slots reserved for round-1 winners. The
+ * cascade in `confirmMatchAction` always advances R1 winners into R2 in
+ * position order (R1 M1 winner → R2 slot 0, R1 M2 → slot 1, …) so bye
+ * teams must occupy the slots R1 winners never touch — i.e. the tail of
+ * round 2. Earlier (pre-v1.8) implementations interleaved byes at even
+ * slots and silently overwrote them when R1 winners cascaded in.
  */
 
 export type GeneratedMatch = {
@@ -39,7 +42,7 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
 
   const matches: GeneratedMatch[] = [];
 
-  // Round 1: bottom (N - byes) shuffled teams play
+  // Round 1: bottom (N - byes) shuffled teams play.
   const r1Teams = shuffled.slice(byes);
   const r1MatchCount = r1Teams.length / 2;
   for (let i = 0; i < r1MatchCount; i++) {
@@ -56,30 +59,23 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
     return matches;
   }
 
-  // Round 2: bracketSize / 4 matches. Slots filled with byes (top of shuffled)
-  // interleaved with placeholders for round-1 winners.
+  // Round 2: bracketSize / 4 matches → bracketSize / 2 slots.
+  // Slot layout (v1.8 fix):
+  //   - First `r1MatchCount` slots are placeholders for round-1 winners,
+  //     populated later by the confirm cascade in position order.
+  //   - Remaining slots are filled with bye teams (top of `shuffled`).
+  // This guarantees the cascade never overwrites a bye team.
   const byeTeams = shuffled.slice(0, byes);
   const r2MatchCount = bracketSize / 4;
   const r2SlotCount = r2MatchCount * 2;
 
-  // Slot assignment: alternate bye then placeholder. If we run out of one,
-  // fall back to the other.
   const r2Slots: (string | null)[] = [];
-  let byeIdx = 0;
-  let placeholderCount = 0;
   for (let slot = 0; slot < r2SlotCount; slot++) {
-    const wantBye = slot % 2 === 0;
-    if (wantBye && byeIdx < byeTeams.length) {
-      r2Slots.push(byeTeams[byeIdx++]);
-    } else if (placeholderCount < r1MatchCount) {
+    if (slot < r1MatchCount) {
       r2Slots.push(null);
-      placeholderCount++;
-    } else if (byeIdx < byeTeams.length) {
-      // out of placeholders — fill remaining with byes
-      r2Slots.push(byeTeams[byeIdx++]);
     } else {
-      // shouldn't happen
-      r2Slots.push(null);
+      const byeIdx = slot - r1MatchCount;
+      r2Slots.push(byeTeams[byeIdx] ?? null);
     }
   }
 

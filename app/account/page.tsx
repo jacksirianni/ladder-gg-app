@@ -4,6 +4,7 @@ import { signOut } from "@/auth";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ChangeHandleForm } from "@/components/change-handle-form";
 import { ExternalProfilesManager } from "@/components/external-profiles-manager";
 import { prisma } from "@/lib/db/prisma";
 import { SiteFooter } from "@/components/site-footer";
@@ -59,6 +60,19 @@ export default async function AccountPage() {
               <p className="mt-1 font-mono text-sm">{user.email}</p>
             </div>
           </Card>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            URL handle
+          </h2>
+          <p className="mt-2 text-sm text-foreground-muted">
+            Pick the slug for your public profile. Old handles redirect
+            for 60 days so shared links keep working.
+          </p>
+          <div className="mt-4">
+            <ChangeHandleForm currentHandle={user.handle} />
+          </div>
         </section>
 
         <section className="mt-10">
