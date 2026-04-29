@@ -4,6 +4,8 @@ import { signOut } from "@/auth";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ExternalProfilesManager } from "@/components/external-profiles-manager";
+import { prisma } from "@/lib/db/prisma";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ChangePasswordForm } from "./change-password-form";
@@ -17,6 +19,18 @@ export default async function AccountPage() {
   if (!user) {
     redirect("/signin");
   }
+
+  // v1.7: load external profile rows for display in the account UI.
+  const externalProfiles = await prisma.userExternalProfile.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      platform: true,
+      identifier: true,
+      url: true,
+      label: true,
+    },
+  });
 
   return (
     <>
@@ -45,6 +59,19 @@ export default async function AccountPage() {
               <p className="mt-1 font-mono text-sm">{user.email}</p>
             </div>
           </Card>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            Linked profiles
+          </h2>
+          <p className="mt-2 text-sm text-foreground-muted">
+            BattleTag, Tracker.gg, Riot ID, Steam, etc. Shown on your
+            public LADDER profile so captains can find you in-game.
+          </p>
+          <div className="mt-4">
+            <ExternalProfilesManager profiles={externalProfiles} />
+          </div>
         </section>
 
         <section className="mt-10">

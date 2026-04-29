@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CopyMessageBox } from "@/components/copy-message-box";
+import { EvidenceList } from "@/components/evidence-list";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { ProfileLink } from "@/components/profile-link";
 import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { FORMAT_RULES, formatScorePair } from "@/lib/match-format";
 
 type Props = {
   params: Promise<{ slug: string; matchId: string }>;
@@ -87,6 +89,7 @@ export default async function MatchSharePage({ params }: Props) {
           name: true,
           game: true,
           state: true,
+          matchFormat: true,
           season: { select: { slug: true, name: true } },
         },
       },
@@ -111,8 +114,17 @@ export default async function MatchSharePage({ params }: Props) {
         take: 1,
         select: {
           scoreText: true,
+          reportedTeamAScore: true,
+          reportedTeamBScore: true,
           createdAt: true,
           reportedBy: { select: { displayName: true, handle: true } },
+        },
+      },
+      // v1.7: load attached evidence for the public share page.
+      evidence: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          user: { select: { displayName: true, handle: true } },
         },
       },
     },
@@ -134,7 +146,18 @@ export default async function MatchSharePage({ params }: Props) {
         : null;
 
   const latestReport = match.reports[0] ?? null;
-  const scoreText = latestReport?.scoreText ?? null;
+  // v1.7: prefer the structured score on the match (set on confirm)
+  // over the report's structured score over the legacy scoreText.
+  const matchStructured = formatScorePair(match.teamAScore, match.teamBScore);
+  const reportStructured = latestReport
+    ? formatScorePair(
+        latestReport.reportedTeamAScore,
+        latestReport.reportedTeamBScore,
+      )
+    : null;
+  const scoreText =
+    matchStructured ?? reportStructured ?? latestReport?.scoreText ?? null;
+  const formatRule = FORMAT_RULES[match.league.matchFormat];
 
   const showResolvedAnnotation = match.status === "ORGANIZER_DECIDED";
 
@@ -166,6 +189,10 @@ export default async function MatchSharePage({ params }: Props) {
           <LeagueStateBadge state={match.league.state} />
           <span className="font-mono text-xs text-foreground-subtle">
             {match.league.game}
+          </span>
+          {/* v1.7: surface the format so viewers know how to read the score. */}
+          <span className="font-mono text-[11px] text-foreground-subtle">
+            {formatRule.label}
           </span>
           {match.league.season && (
             <SeasonPill
@@ -303,6 +330,22 @@ export default async function MatchSharePage({ params }: Props) {
                 </li>
               )}
             </ul>
+          </section>
+        )}
+
+        {/* v1.7: evidence — replay codes / screenshots / VOD / Tracker links / notes. */}
+        {match.evidence.length > 0 && (
+          <section className="mt-8">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              Evidence ({match.evidence.length})
+            </h2>
+            <p className="mt-2 text-xs text-foreground-subtle">
+              Submitted by captains and the organizer. External links open
+              in a new tab.
+            </p>
+            <div className="mt-4">
+              <EvidenceList items={match.evidence} showSubmitter />
+            </div>
           </section>
         )}
 

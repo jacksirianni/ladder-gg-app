@@ -27,6 +27,24 @@ const optionalDateTime = z
   .pipe(z.date().optional());
 
 const visibilityEnum = z.enum(["INVITE_ONLY", "UNLISTED", "OPEN_JOIN"]);
+const matchFormatEnum = z.enum([
+  "BEST_OF_3",
+  "BEST_OF_5",
+  "BEST_OF_7",
+  "SINGLE_SCORE",
+  "FREEFORM",
+]);
+
+// v1.7: longer free-text — rules and map pool, separate cap from
+// description / payment instructions so organizers can paste a real
+// map list.
+const optionalDeepText = (label: string, max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `${label} must be ${max} characters or fewer.`)
+    .optional()
+    .or(z.literal("").transform(() => undefined));
 
 // v1.6: a checkbox submits "on" / undefined; coerce to boolean.
 const checkboxBoolean = z
@@ -65,6 +83,10 @@ const sharedLeagueFields = {
   registrationClosesAt: optionalDateTime,
   startsAt: optionalDateTime,
   lookingForTeams: checkboxBoolean.default(false),
+  // v1.7: match format + game depth.
+  matchFormat: matchFormatEnum.default("SINGLE_SCORE"),
+  rules: optionalDeepText("Rules", 1000),
+  mapPool: optionalDeepText("Map pool", 1000),
 };
 
 // v1.6: invariant — when both timestamps are set, the deadline must be

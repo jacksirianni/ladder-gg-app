@@ -13,7 +13,11 @@ import {
 import { generateBracketMatches } from "@/lib/bracket/generate";
 import { generateInviteToken } from "@/lib/token";
 import { generateSlug } from "@/lib/slug";
-import { resolveDisputeSchema } from "@/lib/validators/match";
+import {
+  parseEvidenceRowsFromForm,
+  resolveDisputeSchema,
+} from "@/lib/validators/match";
+import { validateScore } from "@/lib/match-format";
 import { updateLeagueSchema } from "@/lib/validators/league";
 
 const VALID_PAYMENT_STATUSES = new Set<PaymentStatus>([
@@ -191,6 +195,8 @@ export async function resolveDisputeAction(formData: FormData) {
   const parsed = resolveDisputeSchema.safeParse({
     matchId: String(formData.get("matchId") ?? ""),
     winnerTeamId: String(formData.get("winnerTeamId") ?? ""),
+    teamAScore: formData.get("teamAScore"),
+    teamBScore: formData.get("teamBScore"),
   });
   if (!parsed.success) {
     throw new Error(
@@ -198,13 +204,25 @@ export async function resolveDisputeAction(formData: FormData) {
     );
   }
 
-  const { matchId, winnerTeamId } = parsed.data;
+  const { matchId, winnerTeamId, teamAScore, teamBScore } = parsed.data;
+
+  // v1.7: organizer can attach final evidence at resolution time too.
+  const resolutionEvidence = parseEvidenceRowsFromForm(
+    formData.getAll("evidence").map(String),
+  ).slice(0, 6);
 
   const slug = await prisma.$transaction(async (tx) => {
     const match = await tx.match.findUnique({
       where: { id: matchId },
       include: {
-        league: { select: { id: true, slug: true, organizerId: true } },
+        league: {
+          select: {
+            id: true,
+            slug: true,
+            organizerId: true,
+            matchFormat: true,
+          },
+        },
         teamA: { select: { id: true } },
         teamB: { select: { id: true } },
       },
@@ -223,6 +241,16 @@ export async function resolveDisputeAction(formData: FormData) {
       throw new Error("Winner must be one of the two teams in this match.");
     }
 
+    // v1.7: validate optional structured score against league format.
+    const scoreCheck = validateScore({
+      format: match.league.matchFormat,
+      teamAScore,
+      teamBScore,
+    });
+    if (!scoreCheck.ok) {
+      throw new Error(scoreCheck.message);
+    }
+
     await tx.match.update({
       where: { id: match.id },
       data: {
@@ -230,8 +258,25 @@ export async function resolveDisputeAction(formData: FormData) {
         winnerTeamId,
         confirmedAt: new Date(),
         resolvedByUserId: user.id,
+        // v1.7: persist the final score the organizer recorded.
+        teamAScore: teamAScore ?? null,
+        teamBScore: teamBScore ?? null,
       },
     });
+
+    // v1.7: organizer-attached evidence rows.
+    if (resolutionEvidence.length > 0) {
+      await tx.matchEvidence.createMany({
+        data: resolutionEvidence.map((e) => ({
+          matchId: match.id,
+          submittedByUserId: user.id,
+          kind: e.kind,
+          url: e.url ?? null,
+          textValue: e.textValue ?? null,
+          caption: e.caption ?? null,
+        })),
+      });
+    }
 
     const nextRound = match.round + 1;
     const nextPosition = Math.ceil(match.bracketPosition / 2);
@@ -326,6 +371,11 @@ export async function duplicateLeagueAction(formData: FormData) {
       // to the source's run, not this one.
       visibility: source.visibility,
       lookingForTeams: source.lookingForTeams,
+      // v1.7: preserve match format + game-depth context. These are
+      // game-specific, not calendar-specific.
+      matchFormat: source.matchFormat,
+      rules: source.rules,
+      mapPool: source.mapPool,
     },
     select: { slug: true },
   });
@@ -368,6 +418,14 @@ export async function updateLeagueAction(
     registrationClosesAt: String(formData.get("registrationClosesAt") ?? ""),
     startsAt: String(formData.get("startsAt") ?? ""),
     lookingForTeams: formData.get("lookingForTeams") ?? undefined,
+    // v1.7: match format + game depth. The early-return guard above
+    // means we only reach here in DRAFT/OPEN states where editing is
+    // allowed. The form's matchFormat select is also `disabled` when
+    // the league is past OPEN, which means submitted forms from those
+    // states won't include a `matchFormat` value either way.
+    matchFormat: String(formData.get("matchFormat") ?? league.matchFormat),
+    rules: String(formData.get("rules") ?? ""),
+    mapPool: String(formData.get("mapPool") ?? ""),
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -416,6 +474,10 @@ export async function updateLeagueAction(
       registrationClosesAt: parsed.data.registrationClosesAt ?? null,
       startsAt: parsed.data.startsAt ?? null,
       lookingForTeams: parsed.data.lookingForTeams,
+      // v1.7: match format + game depth.
+      matchFormat: parsed.data.matchFormat,
+      rules: parsed.data.rules ?? null,
+      mapPool: parsed.data.mapPool ?? null,
     },
   });
 

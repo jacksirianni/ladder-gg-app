@@ -4,8 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
-import { submitMatchReportSchema } from "@/lib/validators/match";
+import {
+  parseEvidenceRowsFromForm,
+  submitMatchReportSchema,
+} from "@/lib/validators/match";
 import { createTeamSchema } from "@/lib/validators/team";
+import { deriveBracketSide, validateScore } from "@/lib/match-format";
 
 export type MatchActionState = {
   error?: string;
@@ -30,6 +34,8 @@ export async function submitMatchReportAction(
     matchId: String(formData.get("matchId") ?? ""),
     winnerTeamId: String(formData.get("winnerTeamId") ?? ""),
     scoreText: String(formData.get("scoreText") ?? ""),
+    reportedTeamAScore: formData.get("reportedTeamAScore"),
+    reportedTeamBScore: formData.get("reportedTeamBScore"),
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -40,12 +46,24 @@ export async function submitMatchReportAction(
     return { fieldErrors };
   }
 
-  const { matchId, winnerTeamId, scoreText } = parsed.data;
+  const {
+    matchId,
+    winnerTeamId,
+    scoreText,
+    reportedTeamAScore,
+    reportedTeamBScore,
+  } = parsed.data;
+
+  // v1.7: parse evidence rows. Multiple rows submitted under the
+  // "evidence" form key as JSON-encoded strings.
+  const evidenceRows = parseEvidenceRowsFromForm(
+    formData.getAll("evidence").map(String),
+  ).slice(0, 6); // cap at 6 — defensive over the client-side limit.
 
   const match = await prisma.match.findUnique({
     where: { id: matchId },
     include: {
-      league: { select: { slug: true } },
+      league: { select: { slug: true, matchFormat: true } },
       teamA: { select: { id: true, captainUserId: true } },
       teamB: { select: { id: true, captainUserId: true } },
       reports: {
@@ -88,20 +106,70 @@ export async function submitMatchReportAction(
     return { error: "The winner must be one of the two teams in the match." };
   }
 
-  await prisma.$transaction([
-    prisma.matchReport.create({
+  // v1.7: format-aware score validation. BO-N requires structured
+  // scores; SINGLE_SCORE accepts optional pairs; FREEFORM ignores them.
+  const scoreCheck = validateScore({
+    format: match.league.matchFormat,
+    teamAScore: reportedTeamAScore,
+    teamBScore: reportedTeamBScore,
+  });
+  if (!scoreCheck.ok) {
+    return {
+      fieldErrors: { [scoreCheck.field]: scoreCheck.message },
+    };
+  }
+
+  // For BO-N the winner is *derived* from the score; we cross-check
+  // against the captain's selection so the dropdown can't disagree
+  // with the typed score.
+  const derivedSide = deriveBracketSide(
+    match.league.matchFormat,
+    reportedTeamAScore,
+    reportedTeamBScore,
+  );
+  if (derivedSide !== null) {
+    const derivedWinnerId =
+      derivedSide === "A" ? match.teamA.id : match.teamB.id;
+    if (winnerTeamId !== derivedWinnerId) {
+      return {
+        fieldErrors: {
+          winnerTeamId:
+            "The selected winner doesn't match the score. Pick the team with the higher game count.",
+        },
+      };
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.matchReport.create({
       data: {
         matchId: match.id,
         reportedByUserId: user.id,
         reportedWinnerTeamId: winnerTeamId,
         scoreText: scoreText ?? null,
+        reportedTeamAScore: reportedTeamAScore ?? null,
+        reportedTeamBScore: reportedTeamBScore ?? null,
       },
-    }),
-    prisma.match.update({
+    });
+    await tx.match.update({
       where: { id: match.id },
       data: { status: "AWAITING_CONFIRM" },
-    }),
-  ]);
+    });
+
+    // v1.7: persist any evidence the reporter attached.
+    if (evidenceRows.length > 0) {
+      await tx.matchEvidence.createMany({
+        data: evidenceRows.map((e) => ({
+          matchId: match.id,
+          submittedByUserId: user.id,
+          kind: e.kind,
+          url: e.url ?? null,
+          textValue: e.textValue ?? null,
+          caption: e.caption ?? null,
+        })),
+      });
+    }
+  });
 
   revalidatePath(`/leagues/${match.league.slug}`);
   revalidatePath(`/leagues/${match.league.slug}/manage`);
@@ -159,6 +227,11 @@ export async function confirmMatchAction(
         winnerTeamId,
         confirmedAt: new Date(),
         resolvedByUserId: user.id,
+        // v1.7: promote the reported structured scores onto the match.
+        // Null-safe: legacy reports without scores leave the match
+        // scoreText-only.
+        teamAScore: latestReport.reportedTeamAScore,
+        teamBScore: latestReport.reportedTeamBScore,
       },
     });
 
@@ -259,13 +332,33 @@ export async function disputeMatchAction(
     return { error: "The captain who reported cannot dispute their own report." };
   }
 
-  await prisma.match.update({
-    where: { id: match.id },
-    data: {
-      status: "DISPUTED",
-      disputedAt: new Date(),
-      disputedByUserId: user.id,
-    },
+  // v1.7: parse any evidence the disputing captain attached.
+  const disputeEvidence = parseEvidenceRowsFromForm(
+    formData.getAll("evidence").map(String),
+  ).slice(0, 6);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.match.update({
+      where: { id: match.id },
+      data: {
+        status: "DISPUTED",
+        disputedAt: new Date(),
+        disputedByUserId: user.id,
+      },
+    });
+
+    if (disputeEvidence.length > 0) {
+      await tx.matchEvidence.createMany({
+        data: disputeEvidence.map((e) => ({
+          matchId: match.id,
+          submittedByUserId: user.id,
+          kind: e.kind,
+          url: e.url ?? null,
+          textValue: e.textValue ?? null,
+          caption: e.caption ?? null,
+        })),
+      });
+    }
   });
 
   revalidatePath(`/leagues/${match.league.slug}`);

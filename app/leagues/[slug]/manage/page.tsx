@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmButton } from "@/components/confirm-button";
 import { CopyMessageBox } from "@/components/copy-message-box";
+import { EvidenceList } from "@/components/evidence-list";
 import { InviteLinkBox } from "@/components/invite-link-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { LookingForTeamsBadge } from "@/components/looking-for-teams-badge";
@@ -20,6 +21,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { VisibilityPill } from "@/components/visibility-pill";
 import { shouldShowLookingForTeams } from "@/lib/league-access";
+import { FORMAT_RULES, formatScorePair } from "@/lib/match-format";
 import {
   canCancelLeague,
   canPublishLeague,
@@ -217,8 +219,15 @@ export default async function ManageLeaguePage({ params }: Props) {
         orderBy: { createdAt: "desc" },
         take: 1,
         include: {
-          reportedBy: { select: { displayName: true } },
+          reportedBy: { select: { displayName: true, handle: true } },
           reportedWinnerTeam: { select: { id: true, name: true } },
+        },
+      },
+      // v1.7: load evidence so the organizer can review before deciding.
+      evidence: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          user: { select: { displayName: true, handle: true } },
         },
       },
     },
@@ -361,6 +370,55 @@ export default async function ManageLeaguePage({ params }: Props) {
           </Card>
         </section>
 
+        {/* v1.7: Match Rules summary (read-only — edit via the modal). */}
+        <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+          <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+            Match Rules
+          </h2>
+          <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Format
+              </dt>
+              <dd className="mt-1.5 text-sm">
+                {FORMAT_RULES[league.matchFormat].label}
+                {league.state === "IN_PROGRESS" ||
+                league.state === "COMPLETED" ? (
+                  <span className="ml-2 font-mono text-[11px] text-foreground-subtle">
+                    locked
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Game
+              </dt>
+              <dd className="mt-1.5 text-sm">{league.game}</dd>
+            </div>
+            {league.rules && (
+              <div className="sm:col-span-2">
+                <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                  Rules
+                </dt>
+                <dd className="mt-1.5 whitespace-pre-wrap text-sm text-foreground-muted">
+                  {league.rules}
+                </dd>
+              </div>
+            )}
+            {league.mapPool && (
+              <div className="sm:col-span-2">
+                <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                  Map pool
+                </dt>
+                <dd className="mt-1.5 whitespace-pre-wrap font-mono text-xs text-foreground-muted">
+                  {league.mapPool}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </section>
+
         {/* v1.6: Registration & Access summary (read-only — edit via the modal). */}
         <section className="mt-6 rounded-lg border border-border bg-surface p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -470,6 +528,11 @@ export default async function ManageLeaguePage({ params }: Props) {
                 registrationClosesAt: league.registrationClosesAt,
                 startsAt: league.startsAt,
                 lookingForTeams: league.lookingForTeams,
+                // v1.7: match format + game depth.
+                state: league.state,
+                matchFormat: league.matchFormat,
+                rules: league.rules,
+                mapPool: league.mapPool,
               }}
               teamCount={league.teams.length}
             />
@@ -666,6 +729,33 @@ export default async function ManageLeaguePage({ params }: Props) {
             <ul className="mt-4 flex flex-col gap-3">
               {disputedMatches.map((match) => {
                 const report = match.reports[0];
+                // v1.7: prefer structured reported score, fall back to scoreText.
+                const reportedStructured = report
+                  ? formatScorePair(
+                      report.reportedTeamAScore,
+                      report.reportedTeamBScore,
+                    )
+                  : null;
+                const reportedScoreDisplay =
+                  reportedStructured ?? report?.scoreText ?? null;
+                // v1.7: split evidence by submitter role for clearer
+                // attribution (reporter vs disputer).
+                const reporterEvidence = match.evidence.filter(
+                  (e) => e.submittedByUserId === report?.reportedByUserId,
+                );
+                const disputerEvidence = match.evidence.filter(
+                  (e) => e.submittedByUserId === match.disputedByUserId,
+                );
+                const otherEvidence = match.evidence.filter(
+                  (e) =>
+                    e.submittedByUserId !== report?.reportedByUserId &&
+                    e.submittedByUserId !== match.disputedByUserId,
+                );
+                const isBoNFormat =
+                  league.matchFormat === "BEST_OF_3" ||
+                  league.matchFormat === "BEST_OF_5" ||
+                  league.matchFormat === "BEST_OF_7";
+                const formatRule = FORMAT_RULES[league.matchFormat];
                 return (
                   <li
                     key={match.id}
@@ -676,6 +766,9 @@ export default async function ManageLeaguePage({ params }: Props) {
                         R{match.round} · M{match.bracketPosition}
                       </span>
                       <Badge variant="destructive">Disputed</Badge>
+                      <span className="font-mono text-[11px] text-foreground-subtle">
+                        {formatRule.label}
+                      </span>
                     </div>
                     <p className="mt-2 text-sm">
                       <span className="font-medium">
@@ -697,43 +790,133 @@ export default async function ManageLeaguePage({ params }: Props) {
                           {report.reportedWinnerTeam.name}
                         </span>{" "}
                         won
-                        {report.scoreText && (
+                        {reportedScoreDisplay && (
                           <>
                             {" "}
-                            <span className="font-mono">({report.scoreText})</span>
+                            <span className="font-mono">
+                              ({reportedScoreDisplay})
+                            </span>
                           </>
                         )}
                       </p>
                     )}
+
+                    {/* v1.7: evidence grouped by role. */}
+                    {match.evidence.length > 0 && (
+                      <div className="mt-4 flex flex-col gap-3">
+                        {reporterEvidence.length > 0 && (
+                          <div>
+                            <p className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">
+                              Reporter&apos;s evidence
+                            </p>
+                            <div className="mt-2">
+                              <EvidenceList items={reporterEvidence} />
+                            </div>
+                          </div>
+                        )}
+                        {disputerEvidence.length > 0 && (
+                          <div>
+                            <p className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">
+                              Disputer&apos;s evidence
+                            </p>
+                            <div className="mt-2">
+                              <EvidenceList items={disputerEvidence} />
+                            </div>
+                          </div>
+                        )}
+                        {otherEvidence.length > 0 && (
+                          <div>
+                            <p className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">
+                              Other evidence
+                            </p>
+                            <div className="mt-2">
+                              <EvidenceList
+                                items={otherEvidence}
+                                showSubmitter
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* v1.7: resolution form now accepts optional final
+                        score for BO-N / SINGLE_SCORE. */}
                     <form
                       action={resolveDisputeAction}
-                      className="mt-4 flex flex-wrap items-center gap-2"
+                      className="mt-4 flex flex-col gap-3"
                     >
                       <input type="hidden" name="matchId" value={match.id} />
-                      <Select
-                        name="winnerTeamId"
-                        required
-                        defaultValue=""
-                        aria-label={`Declare winner for match R${match.round} M${match.bracketPosition}`}
-                        className="w-auto"
-                      >
-                        <option value="" disabled>
-                          Declare winner
-                        </option>
-                        {match.teamA && (
-                          <option value={match.teamA.id}>
-                            {match.teamA.name}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Select
+                          name="winnerTeamId"
+                          required
+                          defaultValue=""
+                          aria-label={`Declare winner for match R${match.round} M${match.bracketPosition}`}
+                          className="w-auto"
+                        >
+                          <option value="" disabled>
+                            Declare winner
                           </option>
+                          {match.teamA && (
+                            <option value={match.teamA.id}>
+                              {match.teamA.name}
+                            </option>
+                          )}
+                          {match.teamB && (
+                            <option value={match.teamB.id}>
+                              {match.teamB.name}
+                            </option>
+                          )}
+                        </Select>
+                        {(isBoNFormat ||
+                          league.matchFormat === "SINGLE_SCORE") && (
+                          <>
+                            <input
+                              name="teamAScore"
+                              type="number"
+                              min={0}
+                              max={
+                                isBoNFormat
+                                  ? formatRule.winsRequired ?? undefined
+                                  : 99
+                              }
+                              placeholder={
+                                match.teamA?.name
+                                  ? `${match.teamA.name} score`
+                                  : "Team A score"
+                              }
+                              aria-label={`${match.teamA?.name ?? "Team A"} score`}
+                              className="h-10 w-28 rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                            />
+                            <input
+                              name="teamBScore"
+                              type="number"
+                              min={0}
+                              max={
+                                isBoNFormat
+                                  ? formatRule.winsRequired ?? undefined
+                                  : 99
+                              }
+                              placeholder={
+                                match.teamB?.name
+                                  ? `${match.teamB.name} score`
+                                  : "Team B score"
+                              }
+                              aria-label={`${match.teamB?.name ?? "Team B"} score`}
+                              className="h-10 w-28 rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                            />
+                          </>
                         )}
-                        {match.teamB && (
-                          <option value={match.teamB.id}>
-                            {match.teamB.name}
-                          </option>
-                        )}
-                      </Select>
-                      <Button type="submit" size="sm">
-                        Resolve
-                      </Button>
+                        <Button type="submit" size="sm">
+                          Resolve
+                        </Button>
+                      </div>
+                      <p className="font-mono text-[11px] text-foreground-subtle">
+                        Optional: record the final score for the recap.
+                        Manual resolution is the source of truth — evidence
+                        above is informational only.
+                      </p>
                     </form>
                   </li>
                 );

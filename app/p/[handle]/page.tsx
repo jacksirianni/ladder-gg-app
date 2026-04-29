@@ -1,11 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { LeagueState } from "@prisma/client";
+import type { ExternalPlatform, LeagueState } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+
+// v1.7: human-readable labels for the linked-profile pills.
+const PLATFORM_LABEL: Record<ExternalPlatform, string> = {
+  BATTLENET: "Battle.net",
+  TRACKER_GG: "Tracker.gg",
+  STEAM: "Steam",
+  RIOT_ID: "Riot ID",
+  EPIC: "Epic",
+  XBOX: "Xbox",
+  PSN: "PSN",
+  NINTENDO: "Nintendo",
+  OTHER: "Other",
+};
 
 type Props = {
   params: Promise<{ handle: string }>;
@@ -60,6 +73,16 @@ export default async function PlayerProfilePage({ params }: Props) {
       // Seasons organized by this user.
       organizedSeasons: {
         select: { id: true },
+      },
+      // v1.7: external profile links shown publicly on the profile.
+      externalProfiles: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          platform: true,
+          identifier: true,
+          url: true,
+          label: true,
+        },
       },
     },
   });
@@ -134,6 +157,51 @@ export default async function PlayerProfilePage({ params }: Props) {
             <ProfileStat label="Seasons organized" value={seasonsOrganized} />
           )}
         </section>
+
+        {/* v1.7: linked profiles (BattleTag, Tracker.gg, Riot ID, etc.). */}
+        {user.externalProfiles.length > 0 && (
+          <section className="mt-8">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              Linked profiles
+            </h2>
+            <ul className="mt-4 flex flex-wrap gap-2">
+              {user.externalProfiles.map((p) => {
+                const label = PLATFORM_LABEL[p.platform];
+                const value = p.identifier ?? p.url ?? "";
+                if (p.url) {
+                  return (
+                    <li key={p.platform}>
+                      <a
+                        href={p.url}
+                        target="_blank"
+                        rel="noopener noreferrer nofollow"
+                        className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm transition-colors hover:border-zinc-600 hover:bg-surface-elevated"
+                      >
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-foreground-subtle">
+                          {label}
+                        </span>
+                        <span className="text-foreground-muted">↗</span>
+                      </a>
+                    </li>
+                  );
+                }
+                return (
+                  <li
+                    key={p.platform}
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+                  >
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-foreground-subtle">
+                      {label}
+                    </span>
+                    <code className="rounded-sm bg-surface-elevated px-1.5 py-0.5 font-mono text-xs text-foreground">
+                      {value}
+                    </code>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
 
         {publicCaptainedTeams.length === 0 && (
           <section className="mt-12 rounded-lg border border-dashed border-border bg-surface/30 px-6 py-12 text-center">

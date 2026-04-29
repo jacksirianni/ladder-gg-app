@@ -3,6 +3,7 @@
 import type { MatchStatus } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatScorePair } from "@/lib/match-format";
 import { cn } from "@/lib/cn";
 
 type MatchRowProps = {
@@ -14,12 +15,17 @@ type MatchRowProps = {
     teamAId: string | null;
     teamBId: string | null;
     winnerTeamId: string | null;
+    // v1.7: structured scores
+    teamAScore: number | null;
+    teamBScore: number | null;
     teamA: { id: string; name: string; captainUserId: string } | null;
     teamB: { id: string; name: string; captainUserId: string } | null;
     reports: {
       reportedByUserId: string;
       reportedWinnerTeamId: string;
       scoreText: string | null;
+      reportedTeamAScore: number | null;
+      reportedTeamBScore: number | null;
     }[];
   };
   viewerId: string | null;
@@ -98,11 +104,28 @@ export function MatchRow({ match, viewerId, onOpen }: MatchRowProps) {
             {teamBName}
           </span>
         </p>
-        {latestReport?.scoreText && match.status !== "PENDING" && (
-          <p className="mt-1 font-mono text-xs text-foreground-muted">
-            {latestReport.scoreText}
-          </p>
-        )}
+        {(() => {
+          // v1.7: prefer structured score; fall back to legacy scoreText.
+          if (match.status === "PENDING") return null;
+          const matchScore = formatScorePair(
+            match.teamAScore,
+            match.teamBScore,
+          );
+          const reportScore = latestReport
+            ? formatScorePair(
+                latestReport.reportedTeamAScore,
+                latestReport.reportedTeamBScore,
+              )
+            : null;
+          const display =
+            matchScore ?? reportScore ?? latestReport?.scoreText ?? null;
+          if (!display) return null;
+          return (
+            <p className="mt-1 font-mono text-xs text-foreground-muted">
+              {display}
+            </p>
+          );
+        })()}
       </div>
       <div className="flex items-center gap-2">
         <Badge variant={statusVariant[match.status]}>

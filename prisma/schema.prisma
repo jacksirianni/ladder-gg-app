@@ -53,27 +53,72 @@ enum LeagueVisibility {
   OPEN_JOIN
 }
 
+// v1.7: how a match's score is structured. League-level setting; locked
+// once the bracket starts so retroactive interpretation can't change.
+//   BEST_OF_3 / BEST_OF_5 / BEST_OF_7 — wins-based, winner derived
+//   SINGLE_SCORE — single game with optional structured score (e.g. 4-1
+//                  goals, 13-9 rounds); winner explicitly chosen
+//   FREEFORM — text-only score (e.g. Mario Kart cup totals)
+enum MatchFormat {
+  BEST_OF_3
+  BEST_OF_5
+  BEST_OF_7
+  SINGLE_SCORE
+  FREEFORM
+}
+
+// v1.7: types of external evidence captains/organizers can attach to a
+// match. Manual confirmation remains the source of truth — evidence is
+// informational only and never gates the confirm/dispute flow.
+enum EvidenceKind {
+  SCREENSHOT     // URL to image-hosted scoreboard/screenshot
+  VOD_LINK       // YouTube / Twitch / similar
+  REPLAY_CODE    // in-game replay identifier (alphanumeric)
+  MATCH_LINK     // Tracker.gg / OP.gg / Blitz / other aggregator URL
+  PROFILE_LINK   // similar but for a player profile, not a match
+  NOTE           // free-form text note
+}
+
+// v1.7: external platforms a user can list on their public profile.
+// We never call these platforms' APIs in v1.7 — the user pastes their
+// identifier or URL and we display it. No verification.
+enum ExternalPlatform {
+  BATTLENET
+  TRACKER_GG
+  STEAM
+  RIOT_ID
+  EPIC
+  XBOX
+  PSN
+  NINTENDO
+  OTHER
+}
+
 model User {
-  id                       String        @id @default(cuid())
-  email                    String        @unique
+  id                       String                @id @default(cuid())
+  email                    String                @unique
   emailVerified            DateTime?
   passwordHash             String
   displayName              String
   // v1.5: short URL handle for `/p/[handle]`. Nullable in schema so existing
   // rows can be backfilled; runtime always populates for new signups.
-  handle                   String?       @unique
-  ageConfirmed             Boolean       @default(false)
+  handle                   String?               @unique
+  ageConfirmed             Boolean               @default(false)
   stripeConnectedAccountId String?
   accounts                 Account[]
   sessions                 Session[]
   organizedLeagues         League[]
-  organizedSeasons         Season[]      @relation("UserSeasons")
+  organizedSeasons         Season[]              @relation("UserSeasons")
   captainedTeams           Team[]
-  matchReports             MatchReport[] @relation("MatchReportReporter")
-  matchesResolved          Match[]       @relation("MatchResolver")
-  matchesDisputed          Match[]       @relation("MatchDisputer")
-  createdAt                DateTime      @default(now())
-  updatedAt                DateTime      @updatedAt
+  matchReports             MatchReport[]         @relation("MatchReportReporter")
+  matchesResolved          Match[]               @relation("MatchResolver")
+  matchesDisputed          Match[]               @relation("MatchDisputer")
+  // v1.7: evidence the user has attached to matches (any role).
+  evidenceSubmitted        MatchEvidence[]       @relation("EvidenceSubmitter")
+  // v1.7: external profile links (BattleTag, Tracker.gg, Riot ID, etc.).
+  externalProfiles         UserExternalProfile[]
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
 }
 
 model Account {
@@ -141,6 +186,13 @@ model League {
   // v1.6: organizer-toggled signal that the league wants more teams.
   // Display logic in the UI also gates this on state/capacity/deadline.
   lookingForTeams      Boolean          @default(false)
+  // v1.7: how match scores are structured. Locked once IN_PROGRESS so
+  // existing reports can't be reinterpreted under new rules.
+  matchFormat          MatchFormat      @default(SINGLE_SCORE)
+  // v1.7: free-form rules text — ruleset, region, special restrictions.
+  rules                String?
+  // v1.7: free-form map pool — newline-separated, organizer-managed.
+  mapPool              String?
   startedAt            DateTime?
   completedAt          DateTime?
   cancelledAt          DateTime?
@@ -218,6 +270,12 @@ model Match {
   teamBId          String?
   winnerTeamId     String?
   status           MatchStatus @default(PENDING)
+  // v1.7: structured scores. Interpretation depends on League.matchFormat:
+  //   BO-N: games won by each team (winner derived from these)
+  //   SINGLE_SCORE: optional points/rounds/goals (winner explicit on Match)
+  //   FREEFORM: ignored, scoreText on the latest report is the source
+  teamAScore       Int?
+  teamBScore       Int?
   confirmedAt      DateTime?
   resolvedByUserId String?
   disputedAt       DateTime?
@@ -225,13 +283,15 @@ model Match {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
-  league     League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  teamA      Team?         @relation("MatchTeamA", fields: [teamAId], references: [id], onDelete: SetNull)
-  teamB      Team?         @relation("MatchTeamB", fields: [teamBId], references: [id], onDelete: SetNull)
-  winner     Team?         @relation("MatchWinner", fields: [winnerTeamId], references: [id], onDelete: SetNull)
-  resolvedBy User?         @relation("MatchResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
-  disputedBy User?         @relation("MatchDisputer", fields: [disputedByUserId], references: [id], onDelete: SetNull)
+  league     League          @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  teamA      Team?           @relation("MatchTeamA", fields: [teamAId], references: [id], onDelete: SetNull)
+  teamB      Team?           @relation("MatchTeamB", fields: [teamBId], references: [id], onDelete: SetNull)
+  winner     Team?           @relation("MatchWinner", fields: [winnerTeamId], references: [id], onDelete: SetNull)
+  resolvedBy User?           @relation("MatchResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  disputedBy User?           @relation("MatchDisputer", fields: [disputedByUserId], references: [id], onDelete: SetNull)
   reports    MatchReport[]
+  // v1.7: external evidence — replay codes, screenshots, VOD links, etc.
+  evidence   MatchEvidence[]
 
   @@unique([leagueId, round, bracketPosition])
   @@index([leagueId])
@@ -243,6 +303,10 @@ model MatchReport {
   reportedByUserId     String
   reportedWinnerTeamId String
   scoreText            String?
+  // v1.7: structured scores reported. Mirrors Match.teamAScore /
+  // teamBScore so a dispute can show the disagreement.
+  reportedTeamAScore   Int?
+  reportedTeamBScore   Int?
   createdAt            DateTime @default(now())
 
   match              Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
@@ -250,4 +314,49 @@ model MatchReport {
   reportedWinnerTeam Team  @relation("MatchReportWinner", fields: [reportedWinnerTeamId], references: [id], onDelete: Restrict)
 
   @@index([matchId])
+}
+
+// v1.7: a piece of external evidence attached to a match. Submitted by
+// captains during reporting/dispute, or by the organizer during dispute
+// resolution. Always attached to the match itself (not the report) so
+// it survives report edits and groups naturally by submitter role.
+//
+// Exactly one of `url` or `textValue` is populated based on `kind`:
+//   SCREENSHOT/VOD_LINK/MATCH_LINK/PROFILE_LINK → url
+//   REPLAY_CODE/NOTE                            → textValue
+model MatchEvidence {
+  id                String       @id @default(cuid())
+  matchId           String
+  submittedByUserId String
+  kind              EvidenceKind
+  url               String?
+  textValue         String?
+  caption           String?
+  createdAt         DateTime     @default(now())
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user  User  @relation("EvidenceSubmitter", fields: [submittedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([matchId])
+  @@index([submittedByUserId])
+}
+
+// v1.7: external profile link (BattleTag, Tracker.gg URL, Riot ID, etc.)
+// Display-only — LADDER never calls these platforms' APIs in v1.7.
+// At least one of `identifier` or `url` must be set (validated server-
+// side, not at the schema level so we keep both nullable).
+model UserExternalProfile {
+  id         String           @id @default(cuid())
+  userId     String
+  platform   ExternalPlatform
+  identifier String?
+  url        String?
+  label      String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
 }

@@ -35,6 +35,10 @@ export async function createLeagueAction(
     registrationClosesAt: String(formData.get("registrationClosesAt") ?? ""),
     startsAt: String(formData.get("startsAt") ?? ""),
     lookingForTeams: formData.get("lookingForTeams") ?? undefined,
+    // v1.7: match format + game depth.
+    matchFormat: String(formData.get("matchFormat") ?? "SINGLE_SCORE"),
+    rules: String(formData.get("rules") ?? ""),
+    mapPool: String(formData.get("mapPool") ?? ""),
   };
 
   const parsed = createLeagueSchema.safeParse(raw);
@@ -58,6 +62,9 @@ export async function createLeagueAction(
     registrationClosesAt,
     startsAt,
     lookingForTeams,
+    matchFormat,
+    rules,
+    mapPool,
     ...rest
   } = parsed.data;
   const buyInCents = Math.round(buyInDollars * 100);
@@ -97,6 +104,10 @@ export async function createLeagueAction(
         registrationClosesAt: registrationClosesAt ?? null,
         startsAt: startsAt ?? null,
         lookingForTeams: lookingForTeams ?? false,
+        // v1.7: match format + game depth.
+        matchFormat,
+        rules: rules ?? null,
+        mapPool: mapPool ?? null,
       },
       select: { slug: true },
     });

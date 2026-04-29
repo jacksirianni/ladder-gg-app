@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { computeRecapStats, formatRecapMessage } from "@/lib/recap";
+import { formatScorePair } from "@/lib/match-format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CopyMessageBox } from "@/components/copy-message-box";
@@ -64,11 +65,18 @@ export default async function LeagueRecapPage({ params }: Props) {
           teamAId: true,
           teamBId: true,
           winnerTeamId: true,
+          // v1.7: structured scores for the final-match line
+          teamAScore: true,
+          teamBScore: true,
           disputedAt: true,
           reports: {
             orderBy: { createdAt: "desc" },
             take: 1,
-            select: { scoreText: true },
+            select: {
+              scoreText: true,
+              reportedTeamAScore: true,
+              reportedTeamBScore: true,
+            },
           },
         },
       },
@@ -170,7 +178,22 @@ export default async function LeagueRecapPage({ params }: Props) {
   const runnerUpName = runnerUpId
     ? league.teams.find((t) => t.id === runnerUpId)?.name ?? null
     : null;
-  const finalScoreText = finalMatch?.reports[0]?.scoreText ?? null;
+  // v1.7: prefer structured score (set on confirm) → reported structured
+  // → legacy free-text scoreText. Same precedence as the match share page.
+  const finalStructured = finalMatch
+    ? formatScorePair(finalMatch.teamAScore, finalMatch.teamBScore)
+    : null;
+  const finalReportStructured = finalMatch?.reports[0]
+    ? formatScorePair(
+        finalMatch.reports[0].reportedTeamAScore,
+        finalMatch.reports[0].reportedTeamBScore,
+      )
+    : null;
+  const finalScoreText =
+    finalStructured ??
+    finalReportStructured ??
+    finalMatch?.reports[0]?.scoreText ??
+    null;
 
   const stats = computeRecapStats({
     name: league.name,

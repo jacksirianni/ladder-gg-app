@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { MatchStatus } from "@prisma/client";
+import type { MatchFormat, MatchStatus } from "@prisma/client";
 import {
   Dialog,
   DialogDescription,
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { EvidencePanel } from "@/components/evidence-panel";
 import {
   confirmMatchAction,
   disputeMatchAction,
@@ -18,6 +19,7 @@ import {
   type MatchActionState,
 } from "@/app/leagues/[slug]/actions";
 import { overrideMatchAction } from "@/app/leagues/[slug]/manage/actions";
+import { FORMAT_RULES, formatScorePair } from "@/lib/match-format";
 import { formatRelativeTime } from "@/lib/relative-time";
 
 type Match = {
@@ -28,6 +30,9 @@ type Match = {
   teamAId: string | null;
   teamBId: string | null;
   winnerTeamId: string | null;
+  // v1.7: structured scores (interpretation depends on League.matchFormat)
+  teamAScore: number | null;
+  teamBScore: number | null;
   confirmedAt: string | null;
   disputedAt: string | null;
   teamA: { id: string; name: string; captainUserId: string } | null;
@@ -38,6 +43,8 @@ type Match = {
     reportedByUserId: string;
     reportedWinnerTeamId: string;
     scoreText: string | null;
+    reportedTeamAScore: number | null;
+    reportedTeamBScore: number | null;
     createdAt: string;
     reportedBy: { displayName: string };
   }[];
@@ -48,6 +55,8 @@ type Props = {
   viewerId: string | null;
   /** v1.3: lets the modal show organizer-only override controls. */
   isOrganizer?: boolean;
+  /** v1.7: League.matchFormat — drives report-modal score inputs. */
+  matchFormat: MatchFormat;
   onClose: () => void;
 };
 
@@ -63,6 +72,7 @@ export function MatchActionModal({
   match,
   viewerId,
   isOrganizer = false,
+  matchFormat,
   onClose,
 }: Props) {
   const open = match !== null;
@@ -84,6 +94,9 @@ export function MatchActionModal({
   const [editingReport, setEditingReport] = useState(false);
   // v1.3: lets the organizer reveal the override control on resolved matches.
   const [overrideOpen, setOverrideOpen] = useState(false);
+  // v1.7: lets the disputing captain expand the dispute panel to attach
+  // evidence before submitting.
+  const [disputeOpen, setDisputeOpen] = useState(false);
 
   if (!match) {
     return (
@@ -158,6 +171,7 @@ export function MatchActionModal({
       onClose={() => {
         setEditingReport(false);
         setOverrideOpen(false);
+        setDisputeOpen(false);
         onClose();
       }}
     >
@@ -178,6 +192,7 @@ export function MatchActionModal({
       {match.status === "AWAITING_REPORT" && isCaptainInMatch && (
         <ReportForm
           match={match}
+          matchFormat={matchFormat}
           reportState={reportState}
           reportAction={reportAction}
           reportPending={reportPending}
@@ -201,12 +216,30 @@ export function MatchActionModal({
             <p className="mt-1 text-foreground-muted">
               <span className="text-foreground">{reportedWinnerName ?? "?"}</span>{" "}
               won
-              {latestReport?.scoreText && (
-                <>
-                  {" "}
-                  <span className="font-mono">({latestReport.scoreText})</span>
-                </>
-              )}
+              {(() => {
+                // v1.7: prefer structured score; fall back to scoreText.
+                const structured = formatScorePair(
+                  latestReport?.reportedTeamAScore,
+                  latestReport?.reportedTeamBScore,
+                );
+                if (structured) {
+                  return (
+                    <>
+                      {" "}
+                      <span className="font-mono">({structured})</span>
+                    </>
+                  );
+                }
+                if (latestReport?.scoreText) {
+                  return (
+                    <>
+                      {" "}
+                      <span className="font-mono">({latestReport.scoreText})</span>
+                    </>
+                  );
+                }
+                return null;
+              })()}
               .
             </p>
           </div>
@@ -219,29 +252,65 @@ export function MatchActionModal({
             Dispute only if the result above is wrong. The organizer will
             decide the winner.
           </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <form action={disputeAction}>
-              <input type="hidden" name="matchId" value={match.id} />
+          {/* v1.7: dispute affordance now supports evidence attachment.
+              Collapsed → "Dispute" button shows + Confirm button.
+              Expanded → evidence panel + Submit dispute. */}
+          {!disputeOpen ? (
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button
-                type="submit"
+                type="button"
                 variant="destructive"
-                disabled={disputePending}
+                onClick={() => setDisputeOpen(true)}
                 className="w-full sm:w-auto"
               >
-                {disputePending ? "Disputing…" : "Dispute"}
+                Dispute…
               </Button>
-            </form>
-            <form action={confirmAction}>
+              <form action={confirmAction}>
+                <input type="hidden" name="matchId" value={match.id} />
+                <Button
+                  type="submit"
+                  disabled={confirmPending}
+                  className="w-full sm:w-auto"
+                >
+                  {confirmPending ? "Confirming…" : "Confirm result"}
+                </Button>
+              </form>
+            </div>
+          ) : (
+            <form
+              action={disputeAction}
+              className="flex flex-col gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3"
+            >
               <input type="hidden" name="matchId" value={match.id} />
-              <Button
-                type="submit"
-                disabled={confirmPending}
-                className="w-full sm:w-auto"
-              >
-                {confirmPending ? "Confirming…" : "Confirm result"}
-              </Button>
+              <p className="text-xs text-foreground-muted">
+                Add anything that supports your side — replay codes,
+                screenshots, VOD timestamps. The organizer will see all
+                evidence when resolving.
+              </p>
+              <EvidencePanel
+                description="Optional. Attach what backs up your version of the result."
+                compact
+              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setDisputeOpen(false)}
+                  className="w-full sm:w-auto"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  disabled={disputePending}
+                  className="w-full sm:w-auto"
+                >
+                  {disputePending ? "Submitting…" : "Submit dispute"}
+                </Button>
+              </div>
             </form>
-          </div>
+          )}
         </div>
       )}
 
@@ -280,6 +349,7 @@ export function MatchActionModal({
       {match.status === "AWAITING_CONFIRM" && isReporter && editingReport && (
         <ReportForm
           match={match}
+          matchFormat={matchFormat}
           reportState={reportState}
           reportAction={reportAction}
           reportPending={reportPending}
@@ -288,6 +358,8 @@ export function MatchActionModal({
           defaults={{
             winnerTeamId: latestReport?.reportedWinnerTeamId ?? "",
             scoreText: latestReport?.scoreText ?? "",
+            teamAScore: latestReport?.reportedTeamAScore ?? null,
+            teamBScore: latestReport?.reportedTeamBScore ?? null,
           }}
           onCancel={() => setEditingReport(false)}
         />
@@ -328,12 +400,26 @@ export function MatchActionModal({
         <div className="mt-6 text-sm">
           <p className="font-medium text-success">
             {finalWinnerName ?? reportedWinnerName ?? "?"} won
-            {latestReport?.scoreText && match.status === "CONFIRMED" && (
-              <>
-                {" "}
-                <span className="font-mono">({latestReport.scoreText})</span>
-              </>
-            )}
+            {(() => {
+              // v1.7: prefer the match's structured score, fall back to
+              // the latest report's structured score, then scoreText.
+              const matchScore = formatScorePair(
+                match.teamAScore,
+                match.teamBScore,
+              );
+              const reportScore = formatScorePair(
+                latestReport?.reportedTeamAScore,
+                latestReport?.reportedTeamBScore,
+              );
+              const score =
+                matchScore ?? reportScore ?? latestReport?.scoreText ?? null;
+              return score ? (
+                <>
+                  {" "}
+                  <span className="font-mono">({score})</span>
+                </>
+              ) : null;
+            })()}
             {match.status === "ORGANIZER_DECIDED" && (
               <span className="ml-2 font-normal text-foreground-subtle">
                 (resolved by organizer)
@@ -426,6 +512,7 @@ export function MatchActionModal({
               onClick={() => {
                 setEditingReport(false);
                 setOverrideOpen(false);
+                setDisputeOpen(false);
                 onClose();
               }}
             >
@@ -439,6 +526,7 @@ export function MatchActionModal({
 
 function ReportForm({
   match,
+  matchFormat,
   reportState,
   reportAction,
   reportPending,
@@ -448,20 +536,47 @@ function ReportForm({
   onCancel,
 }: {
   match: Match;
+  matchFormat: MatchFormat;
   reportState: MatchActionState;
   reportAction: (formData: FormData) => void;
   reportPending: boolean;
   submitLabel: string;
   pendingLabel: string;
-  defaults: { winnerTeamId: string; scoreText: string } | null;
+  defaults: {
+    winnerTeamId: string;
+    scoreText: string;
+    teamAScore: number | null;
+    teamBScore: number | null;
+  } | null;
   onCancel: () => void;
 }) {
+  const rules = FORMAT_RULES[matchFormat];
+  const isBoN =
+    matchFormat === "BEST_OF_3" ||
+    matchFormat === "BEST_OF_5" ||
+    matchFormat === "BEST_OF_7";
+  const showStructuredScore = isBoN || matchFormat === "SINGLE_SCORE";
+  const showFreeformScore = matchFormat === "FREEFORM";
+
   return (
     <form action={reportAction} className="mt-6 flex flex-col gap-4">
       <input type="hidden" name="matchId" value={match.id} />
+
+      <p className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">
+        Format: {rules.label}
+        {isBoN && rules.winsRequired !== null && (
+          <> · first to {rules.winsRequired} wins</>
+        )}
+      </p>
+
       <FormField
         label="Winner"
         htmlFor="winnerTeamId"
+        hint={
+          isBoN
+            ? "We'll cross-check against the score below."
+            : undefined
+        }
         error={reportState.fieldErrors?.winnerTeamId}
       >
         <Select
@@ -481,20 +596,88 @@ function ReportForm({
           )}
         </Select>
       </FormField>
-      <FormField
-        label="Score"
-        htmlFor="scoreText"
-        hint='Optional. Free-form, e.g. "3-1".'
-        error={reportState.fieldErrors?.scoreText}
-      >
-        <Input
-          id="scoreText"
-          name="scoreText"
-          maxLength={30}
-          placeholder="3-1"
-          defaultValue={defaults?.scoreText ?? ""}
-        />
-      </FormField>
+
+      {showStructuredScore && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            label={`${match.teamA?.name ?? "Team A"} ${isBoN ? "wins" : "score"}`}
+            htmlFor="reportedTeamAScore"
+            error={reportState.fieldErrors?.reportedTeamAScore}
+          >
+            <Input
+              id="reportedTeamAScore"
+              name="reportedTeamAScore"
+              type="number"
+              min={0}
+              max={isBoN ? rules.winsRequired ?? undefined : 99}
+              required={isBoN}
+              defaultValue={defaults?.teamAScore ?? ""}
+            />
+          </FormField>
+          <FormField
+            label={`${match.teamB?.name ?? "Team B"} ${isBoN ? "wins" : "score"}`}
+            htmlFor="reportedTeamBScore"
+            error={reportState.fieldErrors?.reportedTeamBScore}
+          >
+            <Input
+              id="reportedTeamBScore"
+              name="reportedTeamBScore"
+              type="number"
+              min={0}
+              max={isBoN ? rules.winsRequired ?? undefined : 99}
+              required={isBoN}
+              defaultValue={defaults?.teamBScore ?? ""}
+            />
+          </FormField>
+          {reportState.fieldErrors?.score && (
+            <p className="text-sm text-destructive sm:col-span-2">
+              {reportState.fieldErrors.score}
+            </p>
+          )}
+        </div>
+      )}
+
+      {showFreeformScore && (
+        <FormField
+          label="Score"
+          htmlFor="scoreText"
+          hint='Optional. Free-form, e.g. "127 to 119 to 102 to 89".'
+          error={reportState.fieldErrors?.scoreText}
+        >
+          <Input
+            id="scoreText"
+            name="scoreText"
+            maxLength={30}
+            placeholder="Free-form score"
+            defaultValue={defaults?.scoreText ?? ""}
+          />
+        </FormField>
+      )}
+
+      {/* Optional scoreText for BO-N / SINGLE_SCORE — captures detail
+          like "3-1 (close OT)" alongside the structured score. */}
+      {!showFreeformScore && (
+        <FormField
+          label="Score notes"
+          htmlFor="scoreText"
+          hint="Optional free-form note, e.g. close OT, forfeit on G3."
+          error={reportState.fieldErrors?.scoreText}
+        >
+          <Input
+            id="scoreText"
+            name="scoreText"
+            maxLength={30}
+            placeholder=""
+            defaultValue={defaults?.scoreText ?? ""}
+          />
+        </FormField>
+      )}
+
+      {/* v1.7: evidence attachment. Optional, up to 6 rows. */}
+      <EvidencePanel
+        description="Replay codes, scoreboard screenshots, VOD links, Tracker URLs — all optional."
+      />
+
       {reportState.error && (
         <p className="text-sm text-destructive">{reportState.error}</p>
       )}

@@ -1,14 +1,17 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import type { MatchFormat } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ChipPicker } from "@/components/chip-picker";
+import { MatchRulesFields } from "@/components/match-rules-fields";
 import { PaymentTemplatePicker } from "@/components/payment-template-picker";
 import { RegistrationAccessFields } from "@/components/registration-access-fields";
+import { getGamePreset } from "@/lib/match-format";
 import {
   createLeagueAction,
   type CreateLeagueActionState,
@@ -22,6 +25,7 @@ type Props = {
 };
 
 const GAME_SUGGESTIONS = [
+  "Overwatch 2",
   "Super Smash Bros Ultimate",
   "Rocket League",
   "Mario Kart 8 Deluxe",
@@ -52,6 +56,25 @@ export function CreateLeagueForm({ existingSeasonNames = [] }: Props) {
   const [teamSize, setTeamSize] = useState<number>(1);
   const [maxTeams, setMaxTeams] = useState<number>(8);
   const [seasonName, setSeasonName] = useState("");
+  // v1.7: game-preset hydration. When the user clicks a chip we look up
+  // the preset and bump `presetVersion` to force <MatchRulesFields> to
+  // remount with the new defaults. Local edits before the chip click
+  // are intentionally discarded — that's the chip's whole job.
+  const [presetMatchFormat, setPresetMatchFormat] = useState<MatchFormat>("SINGLE_SCORE");
+  const [presetRules, setPresetRules] = useState<string>("");
+  const [presetMapPool, setPresetMapPool] = useState<string>("");
+  const [presetVersion, setPresetVersion] = useState(0);
+
+  const handleGameSelect = (value: string) => {
+    setGame(value);
+    const preset = getGamePreset(value);
+    if (preset) {
+      setPresetMatchFormat(preset.matchFormat);
+      setPresetRules(preset.rules ?? "");
+      setPresetMapPool(preset.mapPool ?? "");
+      setPresetVersion((v) => v + 1);
+    }
+  };
 
   const rounds = roundsForTeams(maxTeams);
   const teamSizeLabel =
@@ -127,7 +150,7 @@ export function CreateLeagueForm({ existingSeasonNames = [] }: Props) {
           ariaLabel="Game suggestions"
           options={GAME_SUGGESTIONS}
           value={game}
-          onSelect={setGame}
+          onSelect={handleGameSelect}
           className="mt-2"
         />
       </FormField>
@@ -239,6 +262,19 @@ export function CreateLeagueForm({ existingSeasonNames = [] }: Props) {
 
       {/* v1.6: visibility + scheduling controls */}
       <RegistrationAccessFields fieldErrors={state.fieldErrors} />
+
+      {/* v1.7: match format + game depth (rules + map pool). Game-preset
+          chips remount this fieldset (via key) with new defaults so
+          local edits made before a chip click are intentionally cleared. */}
+      <MatchRulesFields
+        key={presetVersion}
+        defaults={{
+          matchFormat: presetMatchFormat,
+          rules: presetRules,
+          mapPool: presetMapPool,
+        }}
+        fieldErrors={state.fieldErrors}
+      />
 
       {state.error && (
         <p className="text-sm text-destructive">{state.error}</p>

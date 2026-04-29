@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { LeagueVisibility } from "@prisma/client";
+import type { LeagueState, LeagueVisibility, MatchFormat } from "@prisma/client";
 import {
   Dialog,
   DialogDescription,
@@ -12,6 +12,7 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { MatchRulesFields } from "@/components/match-rules-fields";
 import {
   RegistrationAccessFields,
   toDatetimeLocalValue,
@@ -36,6 +37,11 @@ type LeagueForEdit = {
   registrationClosesAt: Date | null;
   startsAt: Date | null;
   lookingForTeams: boolean;
+  // v1.7: match format + game depth.
+  state: LeagueState;
+  matchFormat: MatchFormat;
+  rules: string | null;
+  mapPool: string | null;
 };
 
 type Props = {
@@ -240,6 +246,20 @@ export function EditLeagueButton({ league, teamCount }: Props) {
               lookingForTeams: league.lookingForTeams,
             }}
             fieldErrors={state.fieldErrors}
+          />
+
+          {/* v1.7: match format + rules + map pool. matchFormat is locked
+              once IN_PROGRESS so existing scores aren't reinterpreted. */}
+          <MatchRulesFields
+            defaults={{
+              matchFormat: league.matchFormat,
+              rules: league.rules ?? "",
+              mapPool: league.mapPool ?? "",
+            }}
+            fieldErrors={state.fieldErrors}
+            formatLocked={
+              league.state === "IN_PROGRESS" || league.state === "COMPLETED"
+            }
           />
 
           {state.error && (

@@ -136,6 +136,9 @@ export default async function PublicLeaguePage({
               reportedByUserId: true,
               reportedWinnerTeamId: true,
               scoreText: true,
+              // v1.7: structured scores
+              reportedTeamAScore: true,
+              reportedTeamBScore: true,
               createdAt: true,
               reportedBy: { select: { displayName: true } },
             },
@@ -202,6 +205,9 @@ export default async function PublicLeaguePage({
     teamAId: m.teamAId,
     teamBId: m.teamBId,
     winnerTeamId: m.winnerTeamId,
+    // v1.7: structured scores
+    teamAScore: m.teamAScore,
+    teamBScore: m.teamBScore,
     confirmedAt: m.confirmedAt ? m.confirmedAt.toISOString() : null,
     disputedAt: m.disputedAt ? m.disputedAt.toISOString() : null,
     teamA: m.teamA,
@@ -212,6 +218,8 @@ export default async function PublicLeaguePage({
       reportedByUserId: r.reportedByUserId,
       reportedWinnerTeamId: r.reportedWinnerTeamId,
       scoreText: r.scoreText,
+      reportedTeamAScore: r.reportedTeamAScore,
+      reportedTeamBScore: r.reportedTeamBScore,
       createdAt: r.createdAt.toISOString(),
       reportedBy: r.reportedBy,
     })),
@@ -496,6 +504,45 @@ export default async function PublicLeaguePage({
                 </Card>
               </div>
 
+              {/* v1.7: format / rules / map pool. Prominent so captains
+                  know what they signed up for. */}
+              {(league.rules || league.mapPool) && (
+                <div className="mt-8 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-surface p-5">
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                      Match rules
+                    </h3>
+                    <p className="mt-3 font-mono text-xs text-foreground-subtle">
+                      Format:{" "}
+                      <span className="text-foreground">
+                        {{
+                          BEST_OF_3: "Best of 3",
+                          BEST_OF_5: "Best of 5",
+                          BEST_OF_7: "Best of 7",
+                          SINGLE_SCORE: "Single game with score",
+                          FREEFORM: "Free-form",
+                        }[league.matchFormat]}
+                      </span>
+                    </p>
+                    {league.rules && (
+                      <p className="mt-3 whitespace-pre-wrap text-sm">
+                        {league.rules}
+                      </p>
+                    )}
+                  </div>
+                  {league.mapPool && (
+                    <div className="rounded-lg border border-border bg-surface p-5">
+                      <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                        Map pool
+                      </h3>
+                      <p className="mt-3 whitespace-pre-wrap font-mono text-xs text-foreground-muted">
+                        {league.mapPool}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {league.prizeNotes && (
                 <div className="mt-8 rounded-lg border border-border bg-surface p-5">
                   <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
@@ -581,6 +628,7 @@ export default async function PublicLeaguePage({
                 matches={matchesForTab}
                 viewerId={viewerId}
                 isOrganizer={isOrganizer}
+                matchFormat={league.matchFormat}
                 initialMatchId={initialMatchId}
               />
             </TabsContent>
