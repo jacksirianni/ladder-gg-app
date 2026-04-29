@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/toaster";
 import "./globals.css";
@@ -50,6 +50,23 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  // v2.0-C: PWA / iOS standalone hints. The actual manifest is at
+  // app/manifest.ts; these meta tags polish the iOS Add-to-Home-Screen
+  // experience (no separate icon bundle needed — we reuse app/apple-icon.tsx).
+  appleWebApp: {
+    capable: true,
+    title: "LADDER.gg",
+    statusBarStyle: "black-translucent",
+  },
+};
+
+// v2.0-C: viewport + theme color. Theme color tints the browser
+// chrome / status bar to match the dark surface, especially noticeable
+// on the installed PWA on Android.
+export const viewport: Viewport = {
+  themeColor: "#09090B",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

@@ -1,6 +1,10 @@
+"use client";
+
+import { useState } from "react";
 import type { ComponentProps } from "react";
 import type { MatchBracket } from "@prisma/client";
 import { BracketNode } from "@/components/bracket-node";
+import { cn } from "@/lib/cn";
 
 type Match = ComponentProps<typeof BracketNode>["match"];
 
@@ -16,7 +20,6 @@ function roundLabel(round: number, totalRounds: number): string {
   return `Round ${round}`;
 }
 
-/** v2.0: LB rounds get their own label conventions. */
 function losersRoundLabel(round: number, totalRounds: number): string {
   if (round === totalRounds) return "Losers final";
   if (round === totalRounds - 1) return "Losers semi";
@@ -24,11 +27,16 @@ function losersRoundLabel(round: number, totalRounds: number): string {
 }
 
 /**
- * v2.0: bracket view now handles double-elim. Renders three labeled
- * sections (Winners / Losers / Grand final) when the match list contains
- * non-WINNERS bracket entries; otherwise renders the legacy single-
- * bracket layout. Sections stack vertically — desktop and mobile share
- * the same structure (mobile polish in v2.0-C).
+ * v2.0-C: bracket view now adapts to viewport.
+ *   - Desktop (lg+): all sections stacked vertically (Winners / Losers
+ *     / Grand final), each scrolls horizontally between rounds. Same
+ *     layout as v2.0-A.
+ *   - Mobile (< lg): tabs at the top — "Winners" / "Losers" / "Grand
+ *     final" — only one section visible at a time. Avoids the dual-
+ *     scroll-container problem.
+ *
+ * Single-elim leagues never see the tabs; they render the legacy
+ * single-section layout regardless of viewport.
  */
 export function BracketView({ matches }: Props) {
   if (matches.length === 0) {
@@ -44,32 +52,108 @@ export function BracketView({ matches }: Props) {
   const isDoubleElim = lbMatches.length > 0 || gfMatches.length > 0;
 
   if (!isDoubleElim) {
-    // Legacy single-elim layout — preserves exact prior behavior.
     return <BracketColumns matches={wbMatches} />;
   }
 
+  return <DoubleElimView wb={wbMatches} lb={lbMatches} gf={gfMatches} />;
+}
+
+function DoubleElimView({
+  wb,
+  lb,
+  gf,
+}: {
+  wb: Match[];
+  lb: Match[];
+  gf: Match[];
+}) {
+  type Tab = "WINNERS" | "LOSERS" | "GRAND_FINAL";
+  const [activeTab, setActiveTab] = useState<Tab>("WINNERS");
+
   return (
-    <div className="flex flex-col gap-8">
-      <BracketSection
-        title="Winners bracket"
-        matches={wbMatches}
-        bracketKind="WINNERS"
-      />
-      {lbMatches.length > 0 && (
+    <div>
+      {/* Mobile tabs (< lg). Hidden on desktop where all sections stack. */}
+      <div
+        role="tablist"
+        aria-label="Bracket sections"
+        className="mb-4 inline-flex items-center gap-1 rounded-md border border-border bg-surface p-1 lg:hidden"
+      >
+        <BracketTab
+          active={activeTab === "WINNERS"}
+          onClick={() => setActiveTab("WINNERS")}
+        >
+          Winners
+        </BracketTab>
+        <BracketTab
+          active={activeTab === "LOSERS"}
+          onClick={() => setActiveTab("LOSERS")}
+        >
+          Losers
+        </BracketTab>
+        {gf.length > 0 && (
+          <BracketTab
+            active={activeTab === "GRAND_FINAL"}
+            onClick={() => setActiveTab("GRAND_FINAL")}
+          >
+            Grand final
+          </BracketTab>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-8">
+        {/* Winners — always visible on lg+, conditional on mobile. */}
         <BracketSection
-          title="Losers bracket"
-          matches={lbMatches}
-          bracketKind="LOSERS"
+          title="Winners bracket"
+          matches={wb}
+          bracketKind="WINNERS"
+          className={cn(activeTab !== "WINNERS" && "hidden lg:block")}
         />
-      )}
-      {gfMatches.length > 0 && (
-        <BracketSection
-          title="Grand final"
-          matches={gfMatches}
-          bracketKind="GRAND_FINAL"
-        />
-      )}
+        {lb.length > 0 && (
+          <BracketSection
+            title="Losers bracket"
+            matches={lb}
+            bracketKind="LOSERS"
+            className={cn(activeTab !== "LOSERS" && "hidden lg:block")}
+          />
+        )}
+        {gf.length > 0 && (
+          <BracketSection
+            title="Grand final"
+            matches={gf}
+            bracketKind="GRAND_FINAL"
+            className={cn(activeTab !== "GRAND_FINAL" && "hidden lg:block")}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+function BracketTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "rounded px-3 py-1.5 text-sm font-medium transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        active
+          ? "bg-surface-elevated text-foreground"
+          : "text-foreground-muted hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -77,14 +161,16 @@ function BracketSection({
   title,
   matches,
   bracketKind,
+  className,
 }: {
   title: string;
   matches: Match[];
   bracketKind: MatchBracket;
+  className?: string;
 }) {
   if (matches.length === 0) return null;
   return (
-    <section>
+    <section className={className}>
       <h3 className="mb-3 font-mono text-xs uppercase tracking-widest text-foreground-subtle">
         {title}
       </h3>
@@ -100,7 +186,6 @@ function BracketColumns({
   matches: Match[];
   bracketKind?: MatchBracket;
 }) {
-  // Group by round.
   const byRound = new Map<number, Match[]>();
   for (const m of matches) {
     const arr = byRound.get(m.round) ?? [];
@@ -129,7 +214,7 @@ function BracketColumns({
             <div className="flex flex-1 flex-col justify-around gap-3">
               {matches.map((m) => (
                 <BracketNode
-                  key={`${m.round}-${m.bracketPosition}`}
+                  key={`${m.bracket}-${m.round}-${m.bracketPosition}`}
                   match={m}
                 />
               ))}
