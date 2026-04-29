@@ -6,11 +6,13 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { computeRecapStats, formatRecapMessage } from "@/lib/recap";
 import { formatScorePair } from "@/lib/match-format";
+import { loadAwardsSectionData } from "@/lib/awards";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CopyMessageBox } from "@/components/copy-message-box";
 import { LeagueStateBadge } from "@/components/league-state-badge";
 import { Avatar } from "@/components/avatar";
+import { AwardsSection } from "@/components/awards-section";
 import { ProfileLink } from "@/components/profile-link";
 import { SeasonPill } from "@/components/season-pill";
 import { SiteFooter } from "@/components/site-footer";
@@ -242,6 +244,10 @@ export default async function LeagueRecapPage({ params }: Props) {
     publicUrl,
   });
 
+  // v2.0-F: hydrate the awards section. Also opportunistically
+  // finalizes MVP voting if the window has closed.
+  const awardsData = await loadAwardsSectionData(league.id, viewerId);
+
   return (
     <>
       <SiteHeader />
@@ -342,6 +348,14 @@ export default async function LeagueRecapPage({ params }: Props) {
             </p>
           )}
         </Card>
+
+        {/* v2.0-F: Awards (champion/runner-up auto, MVP voted) */}
+        <AwardsSection
+          leagueId={league.id}
+          completedAt={awardsData.completedAt}
+          awards={awardsData.awards}
+          mvp={awardsData.mvp}
+        />
 
         {/* Stats */}
         <section className="mt-8 grid gap-3 sm:grid-cols-3">

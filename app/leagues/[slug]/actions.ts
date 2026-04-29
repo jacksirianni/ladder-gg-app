@@ -14,6 +14,12 @@ import {
   applyMatchCascade,
   computeBracketSize,
 } from "@/lib/bracket/apply-cascade";
+import {
+  canVoteMvp,
+  isMvpCandidate,
+  isMvpVotingClosed,
+  maybeFinalizeMvp,
+} from "@/lib/awards";
 import { setFlashToast } from "@/lib/toast";
 
 export type MatchActionState = {
@@ -453,4 +459,87 @@ export async function updateTeamAction(
 
   await setFlashToast({ kind: "success", message: "Team saved." });
   return { success: true };
+}
+
+// ---------------------------------------------------------------
+// v2.0-F: MVP voting
+// ---------------------------------------------------------------
+
+/**
+ * Cast (or change) an MVP vote for the given league. The vote is
+ * upserted by (leagueId, voter), so re-submitting overwrites your
+ * previous pick until voting closes.
+ *
+ * Eligibility:
+ *   - league must be COMPLETED
+ *   - voting window must still be open (no MVP award yet AND window
+ *     not elapsed)
+ *   - voter must be the organizer OR captain of a team in the league
+ *   - candidate must be the captain of a team in the league
+ *
+ * After the upsert we run `maybeFinalizeMvp` so that if THIS vote is
+ * the one that satisfies the all-captains-voted quorum, the MVP award
+ * materializes immediately (no need to wait for the next read path).
+ */
+export async function castMvpVoteAction(formData: FormData) {
+  const user = await requireAuth();
+  const leagueId = String(formData.get("leagueId") ?? "");
+  const candidateUserId = String(formData.get("candidateUserId") ?? "");
+  if (!leagueId || !candidateUserId) {
+    throw new Error("League and candidate are required.");
+  }
+
+  const league = await prisma.league.findUnique({
+    where: { id: leagueId },
+    select: {
+      slug: true,
+      state: true,
+      completedAt: true,
+      awards: { where: { kind: "MVP" }, select: { id: true } },
+    },
+  });
+  if (!league) throw new Error("League not found.");
+  if (league.state !== "COMPLETED") {
+    throw new Error("MVP voting is only open after the league completes.");
+  }
+  if (
+    isMvpVotingClosed({
+      completedAt: league.completedAt,
+      hasMvpAward: league.awards.length > 0,
+    })
+  ) {
+    throw new Error("MVP voting is already closed for this league.");
+  }
+
+  const [eligible, validCandidate] = await Promise.all([
+    canVoteMvp(leagueId, user.id),
+    isMvpCandidate(leagueId, candidateUserId),
+  ]);
+  if (!eligible) {
+    throw new Error("Only organizers and team captains can vote for MVP.");
+  }
+  if (!validCandidate) {
+    throw new Error("That player isn't a captain in this league.");
+  }
+
+  await prisma.leagueMVPVote.upsert({
+    where: {
+      leagueId_voterUserId: { leagueId, voterUserId: user.id },
+    },
+    create: {
+      leagueId,
+      voterUserId: user.id,
+      candidateUserId,
+    },
+    update: { candidateUserId },
+  });
+
+  // Lazy finalize — handles the all-captains-voted quorum case
+  // immediately, so the recap can show the locked-in MVP without
+  // waiting for the time window.
+  await maybeFinalizeMvp(leagueId);
+
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/leagues/${league.slug}/recap`);
+  await setFlashToast({ kind: "success", message: "MVP vote saved." });
 }

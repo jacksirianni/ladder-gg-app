@@ -105,6 +105,25 @@ export default async function PlayerProfilePage({ params }: Props) {
           label: true,
         },
       },
+      // v2.0-F: awards earned across leagues. Used for MVP count + the
+      // awards strip below the stats row.
+      awardsReceived: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          kind: true,
+          voteCount: true,
+          createdAt: true,
+          league: {
+            select: {
+              slug: true,
+              name: true,
+              game: true,
+              completedAt: true,
+            },
+          },
+          team: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -147,6 +166,10 @@ export default async function PlayerProfilePage({ params }: Props) {
   }
 
   const seasonsOrganized = user.organizedSeasons.length;
+  // v2.0-F: MVP wins from the awards table. Stats-row use only —
+  // CHAMPION/RUNNER_UP keep using the legacy match walk above so
+  // pre-v2.0-F leagues continue to count without a backfill.
+  const mvpAwards = user.awardsReceived.filter((a) => a.kind === "MVP");
 
   return (
     <>
@@ -183,6 +206,10 @@ export default async function PlayerProfilePage({ params }: Props) {
         <section className="mt-8 grid gap-3 grid-cols-2 sm:grid-cols-4">
           <ProfileStat label="Championships" value={championships} accent />
           <ProfileStat label="Runner-up" value={runnerUps} />
+          {/* v2.0-F: MVP awards (voted by participants). */}
+          {mvpAwards.length > 0 && (
+            <ProfileStat label="MVP" value={mvpAwards.length} accent />
+          )}
           <ProfileStat
             label="Completed leagues"
             value={completedTeams.length}
@@ -191,6 +218,69 @@ export default async function PlayerProfilePage({ params }: Props) {
             <ProfileStat label="Seasons organized" value={seasonsOrganized} />
           )}
         </section>
+
+        {/* v2.0-F: MVP awards list. Surfaced only when there are wins
+            so we don't add a noisy zero-state to every profile. */}
+        {mvpAwards.length > 0 && (
+          <section className="mt-8">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+              MVP awards
+            </h2>
+            <ul className="mt-4 flex flex-col gap-2">
+              {mvpAwards.map((a) => (
+                <li
+                  key={a.league.slug}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-success/30 bg-success/5 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <Link
+                      href={`/leagues/${a.league.slug}/recap`}
+                      className="block truncate text-sm font-semibold text-success hover:underline"
+                    >
+                      {a.league.name}
+                    </Link>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-foreground-subtle">
+                      {a.league.game}
+                      {a.team && (
+                        <>
+                          <span className="px-1.5 text-foreground-subtle">
+                            ·
+                          </span>
+                          <span className="text-foreground-muted">
+                            {a.team.name}
+                          </span>
+                        </>
+                      )}
+                      {a.league.completedAt && (
+                        <>
+                          <span className="px-1.5 text-foreground-subtle">
+                            ·
+                          </span>
+                          <span>
+                            {a.league.completedAt.toLocaleDateString(
+                              "en-US",
+                              {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              },
+                            )}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  {a.voteCount !== null && (
+                    <span className="font-mono text-[11px] uppercase tracking-wider text-success">
+                      {a.voteCount}{" "}
+                      {a.voteCount === 1 ? "vote" : "votes"}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* v1.7: linked profiles (BattleTag, Tracker.gg, Riot ID, etc.). */}
         {user.externalProfiles.length > 0 && (

@@ -3,6 +3,7 @@ import type {
   MatchBracket,
   Prisma,
 } from "@prisma/client";
+import { emitChampionshipAwards } from "@/lib/awards";
 import { notifyLeagueCompleted } from "@/lib/email/notify";
 import {
   isDoubleElim,
@@ -176,6 +177,10 @@ async function markLeagueCompleted(tx: TxLike, leagueId: string) {
     where: { id: leagueId },
     data: { state: "COMPLETED", completedAt: new Date() },
   });
+  // v2.0-F: persist CHAMPION + RUNNER_UP awards inside the same
+  // transaction. Idempotent upserts — re-resolving the final updates
+  // them in place. MVP is finalized lazily later by `maybeFinalizeMvp`.
+  await emitChampionshipAwards(tx, leagueId);
   // v2.0-B: fire-and-forget league-completed email burst.
   // Schedule outside the transaction (using void + setImmediate-equivalent
   // would be cleaner but we just call it — notify reads from prisma

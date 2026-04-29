@@ -10,6 +10,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { AwardsSection } from "@/components/awards-section";
 import { BracketView } from "@/components/bracket-view";
 import { Button } from "@/components/ui/button";
 import { ChampionHero } from "@/components/champion-hero";
@@ -29,6 +30,7 @@ import {
   canJoinLeague,
   shouldShowLookingForTeams,
 } from "@/lib/league-access";
+import { loadAwardsSectionData } from "@/lib/awards";
 import Link from "next/link";
 import { MatchesTab } from "./matches-tab";
 import { leaveTeamAction } from "./actions";
@@ -213,6 +215,12 @@ export default async function PublicLeaguePage({
     initialMatchParam &&
     league.matches.some((m) => m.id === initialMatchParam)
       ? initialMatchParam
+      : null;
+
+  // v2.0-F: hydrate awards data only for completed leagues.
+  const awardsData =
+    league.state === "COMPLETED"
+      ? await loadAwardsSectionData(league.id, viewerId)
       : null;
 
   const matchesForTab = league.matches.map((m) => ({
@@ -473,6 +481,16 @@ export default async function PublicLeaguePage({
             matchesPlayed={matchesPlayed}
             disputesCount={disputesCount}
             isOrganizer={isOrganizer}
+          />
+        )}
+
+        {/* v2.0-F: Awards block (auto champion/runner-up + MVP voting). */}
+        {awardsData && (
+          <AwardsSection
+            leagueId={league.id}
+            completedAt={awardsData.completedAt}
+            awards={awardsData.awards}
+            mvp={awardsData.mvp}
           />
         )}
 

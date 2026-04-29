@@ -119,6 +119,15 @@ enum ExternalPlatform {
   OTHER
 }
 
+// v2.0-F: per-league award kinds. CHAMPION + RUNNER_UP are auto-emitted
+// at completion from the final match; MVP is voted by participants and
+// finalized lazily once the voting window expires.
+enum LeagueAwardKind {
+  CHAMPION
+  RUNNER_UP
+  MVP
+}
+
 model User {
   id                       String                @id @default(cuid())
   email                    String                @unique
@@ -152,6 +161,10 @@ model User {
   // v1.8: handle history — keeps old `/p/[handle]` links working for a
   // grace period after the user changes their handle.
   handleHistory            UserHandleHistory[]
+  // v2.0-F: awards received and MVP votes cast/received.
+  awardsReceived           LeagueAward[]         @relation("AwardRecipient")
+  mvpVotesCast             LeagueMVPVote[]       @relation("MVPVoter")
+  mvpVotesReceived         LeagueMVPVote[]       @relation("MVPCandidate")
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 }
@@ -248,6 +261,9 @@ model League {
   season    Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   teams     Team[]
   matches   Match[]
+  // v2.0-F: per-league awards (auto + voted) and MVP vote ballots.
+  awards    LeagueAward[]
+  mvpVotes  LeagueMVPVote[]
 
   @@index([organizerId])
   @@index([seasonId])
@@ -287,6 +303,8 @@ model Team {
   matchesAsTeamB       Match[]           @relation("MatchTeamB")
   matchesWon           Match[]           @relation("MatchWinner")
   matchReportsAsWinner MatchReport[]     @relation("MatchReportWinner")
+  // v2.0-F: awards earned by this team (CHAMPION/RUNNER_UP/MVP).
+  awards               LeagueAward[]     @relation("TeamAwards")
 
   @@unique([leagueId, captainUserId])
   @@index([leagueId])
@@ -427,4 +445,55 @@ model UserExternalProfile {
 
   @@unique([userId, platform])
   @@index([userId])
+}
+
+// v2.0-F: an award given out at the end of a league. CHAMPION and
+// RUNNER_UP are emitted by `emitChampionshipAwards` inside the cascade
+// transaction the moment the league marks COMPLETED. MVP is finalized
+// lazily by `maybeFinalizeMvp` once voting closes (window elapsed OR
+// every captain has voted), and skipped on a top-vote tie.
+//
+// One row per (leagueId, kind). Re-resolutions/overrides upsert in place
+// so awards stay in sync with the latest final-match outcome.
+model LeagueAward {
+  id              String          @id @default(cuid())
+  leagueId        String
+  kind            LeagueAwardKind
+  recipientUserId String
+  // The team the recipient captained when they earned this award. Stored
+  // for display only (the team name on profile cards) — null-safe so a
+  // later team rename/cascade-delete doesn't orphan the award.
+  teamId          String?
+  // For MVP: votes received at finalization. Null for auto-awards.
+  voteCount       Int?
+  createdAt       DateTime        @default(now())
+
+  league    League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  recipient User   @relation("AwardRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  team      Team?  @relation("TeamAwards", fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@unique([leagueId, kind])
+  @@index([leagueId])
+  @@index([recipientUserId])
+}
+
+// v2.0-F: a single MVP ballot. One row per (leagueId, voter) — re-voting
+// upserts so a user can change their pick before the window closes.
+// Eligibility (voter must be organizer or a captain in this league) is
+// enforced at the action layer, not the schema, so the schema stays
+// permissive and the rules can evolve.
+model LeagueMVPVote {
+  id              String   @id @default(cuid())
+  leagueId        String
+  voterUserId     String
+  candidateUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  league    League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  voter     User   @relation("MVPVoter", fields: [voterUserId], references: [id], onDelete: Cascade)
+  candidate User   @relation("MVPCandidate", fields: [candidateUserId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, voterUserId])
+  @@index([leagueId, candidateUserId])
 }
