@@ -37,6 +37,8 @@ export async function createLeagueAction(
     lookingForTeams: formData.get("lookingForTeams") ?? undefined,
     // v1.7: match format + game depth.
     matchFormat: String(formData.get("matchFormat") ?? "SINGLE_SCORE"),
+    // v1.9: optional final-match format. Form posts "" or "NONE" when off.
+    finalMatchFormat: String(formData.get("finalMatchFormat") ?? ""),
     rules: String(formData.get("rules") ?? ""),
     mapPool: String(formData.get("mapPool") ?? ""),
   };
@@ -63,6 +65,7 @@ export async function createLeagueAction(
     startsAt,
     lookingForTeams,
     matchFormat,
+    finalMatchFormat,
     rules,
     mapPool,
     ...rest
@@ -106,6 +109,12 @@ export async function createLeagueAction(
         lookingForTeams: lookingForTeams ?? false,
         // v1.7: match format + game depth.
         matchFormat,
+        // v1.9: ignore finalMatchFormat if it equals matchFormat (no point
+        // storing a "different" format that's the same).
+        finalMatchFormat:
+          finalMatchFormat && finalMatchFormat !== matchFormat
+            ? finalMatchFormat
+            : null,
         rules: rules ?? null,
         mapPool: mapPool ?? null,
       },

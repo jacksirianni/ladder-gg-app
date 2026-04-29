@@ -19,7 +19,11 @@ import {
   type MatchActionState,
 } from "@/app/leagues/[slug]/actions";
 import { overrideMatchAction } from "@/app/leagues/[slug]/manage/actions";
-import { FORMAT_RULES, formatScorePair } from "@/lib/match-format";
+import {
+  FORMAT_RULES,
+  formatForMatch,
+  formatScorePair,
+} from "@/lib/match-format";
 import { formatRelativeTime } from "@/lib/relative-time";
 
 type Match = {
@@ -55,8 +59,16 @@ type Props = {
   viewerId: string | null;
   /** v1.3: lets the modal show organizer-only override controls. */
   isOrganizer?: boolean;
-  /** v1.7: League.matchFormat — drives report-modal score inputs. */
+  /** v1.7: League.matchFormat — drives report-modal score inputs.
+   *  v1.9: this is the *default* format; the final match may override
+   *  via `finalMatchFormat`. */
   matchFormat: MatchFormat;
+  /** v1.9: League.finalMatchFormat — applies only to the highest-round
+   *  match in the bracket. */
+  finalMatchFormat?: MatchFormat | null;
+  /** v1.9: highest round in the bracket. Used with the open match's
+   *  round to decide whether the final-format override applies. */
+  totalRounds?: number;
   onClose: () => void;
 };
 
@@ -73,6 +85,8 @@ export function MatchActionModal({
   viewerId,
   isOrganizer = false,
   matchFormat,
+  finalMatchFormat = null,
+  totalRounds = 0,
   onClose,
 }: Props) {
   const open = match !== null;
@@ -105,6 +119,17 @@ export function MatchActionModal({
       </Dialog>
     );
   }
+
+  // v1.9: figure out which format applies to *this* match. The final
+  // gets the override (if set); everything else uses the default.
+  const isFinal = totalRounds > 0 && match.round === totalRounds;
+  const effectiveFormat = formatForMatch({
+    matchRound: match.round,
+    totalRounds,
+    matchFormat,
+    finalMatchFormat,
+  });
+  const effectiveRules = FORMAT_RULES[effectiveFormat];
 
   const isCaptainInMatch =
     !!viewerId &&
@@ -176,10 +201,21 @@ export function MatchActionModal({
       }}
     >
       <DialogTitle>
-        Round {match.round} · Match {match.bracketPosition}
+        {isFinal ? "Final" : `Round ${match.round}`} · Match{" "}
+        {match.bracketPosition}
       </DialogTitle>
       <DialogDescription>
-        {teamAName} vs {teamBName}
+        <span className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">
+          {effectiveRules.label}
+          {isFinal && finalMatchFormat && finalMatchFormat !== matchFormat && (
+            <span className="ml-2 rounded-sm border border-success/40 bg-success/10 px-1.5 py-0.5 text-success">
+              Final-only format
+            </span>
+          )}
+        </span>
+        <span className="block text-foreground-muted">
+          {teamAName} vs {teamBName}
+        </span>
       </DialogDescription>
 
       {match.status === "PENDING" && (
@@ -192,7 +228,7 @@ export function MatchActionModal({
       {match.status === "AWAITING_REPORT" && isCaptainInMatch && (
         <ReportForm
           match={match}
-          matchFormat={matchFormat}
+          matchFormat={effectiveFormat}
           reportState={reportState}
           reportAction={reportAction}
           reportPending={reportPending}
@@ -349,7 +385,7 @@ export function MatchActionModal({
       {match.status === "AWAITING_CONFIRM" && isReporter && editingReport && (
         <ReportForm
           match={match}
-          matchFormat={matchFormat}
+          matchFormat={effectiveFormat}
           reportState={reportState}
           reportAction={reportAction}
           reportPending={reportPending}

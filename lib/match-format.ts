@@ -222,25 +222,42 @@ export type GamePreset = {
   matchFormat: MatchFormat;
   rules?: string;
   mapPool?: string;
+  /** v1.9: suggested team size for this game (1 = solo, 5 = 5v5). */
+  teamSize?: number;
+  /** v1.9: suggested max teams for the bracket. Power-of-two friendly. */
+  maxTeams?: number;
+  /** v1.9: optional final-match format override (e.g. BO3 → BO5 final). */
+  finalMatchFormat?: MatchFormat;
 };
 
 export const GAME_PRESETS: Record<string, GamePreset> = {
   "Super Smash Bros Ultimate": {
     matchFormat: "BEST_OF_3",
+    finalMatchFormat: "BEST_OF_5",
+    teamSize: 1,
+    maxTeams: 8,
     rules:
       "3-stock, 7-min timer. Standard tournament stage list. 1 ban each, loser of last game picks first.",
   },
   "Rocket League": {
     matchFormat: "BEST_OF_5",
+    finalMatchFormat: "BEST_OF_7",
+    teamSize: 3,
+    maxTeams: 8,
     rules: "3v3 standard. Casual rules. 5-min games.",
   },
   "Mario Kart 8 Deluxe": {
     matchFormat: "FREEFORM",
+    teamSize: 1,
+    maxTeams: 8,
     rules:
       "200cc, all items. Cup format — track point totals across 4 races. Highest total wins.",
   },
   Valorant: {
     matchFormat: "BEST_OF_3",
+    finalMatchFormat: "BEST_OF_5",
+    teamSize: 5,
+    maxTeams: 8,
     rules:
       "Best of 3 maps. Standard competitive ruleset. NA region. Tournament map pool.",
     mapPool:
@@ -248,34 +265,52 @@ export const GAME_PRESETS: Record<string, GamePreset> = {
   },
   "League of Legends": {
     matchFormat: "BEST_OF_3",
+    finalMatchFormat: "BEST_OF_5",
+    teamSize: 5,
+    maxTeams: 8,
     rules:
       "Standard draft pick. Summoner's Rift. Tournament code optional — paste in evidence panel if used.",
   },
   FIFA: {
     matchFormat: "SINGLE_SCORE",
+    teamSize: 1,
+    maxTeams: 8,
     rules: "Single game. 6-min halves. Track final score (goals).",
   },
   "NBA 2K": {
     matchFormat: "SINGLE_SCORE",
+    teamSize: 1,
+    maxTeams: 8,
     rules: "Single game. 7-min quarters. Track final score (points).",
   },
   Madden: {
     matchFormat: "SINGLE_SCORE",
+    teamSize: 1,
+    maxTeams: 8,
     rules: "Single game. Default game length. Track final score (points).",
   },
   Fortnite: {
     matchFormat: "FREEFORM",
+    teamSize: 4,
+    maxTeams: 8,
     rules: "BR or custom mode. Track points / placement / elims as agreed.",
   },
   "Call of Duty": {
     matchFormat: "BEST_OF_5",
+    finalMatchFormat: "BEST_OF_7",
+    teamSize: 4,
+    maxTeams: 8,
     rules:
       "Best of 5 maps. CDL ruleset by default — adjust if your league prefers casual.",
   },
   // v1.7: Overwatch deep support. Map pool reflects a representative
   // OW2 competitive rotation; organizer can edit per season.
+  // v1.9: BO3 default, BO5 final — standard OW2 league pattern.
   "Overwatch 2": {
     matchFormat: "BEST_OF_3",
+    finalMatchFormat: "BEST_OF_5",
+    teamSize: 5,
+    maxTeams: 8,
     rules:
       "Role queue (1 tank, 2 DPS, 2 support). Standard competitive ruleset. NA region.",
     mapPool:
@@ -297,4 +332,50 @@ export function getGamePreset(gameName: string): GamePreset | null {
     if (key.toLowerCase() === lower) return GAME_PRESETS[key];
   }
   return null;
+}
+
+/**
+ * v1.9: pick the format that applies to a specific match.
+ *
+ * If the league has a `finalMatchFormat` and the match is the final
+ * (highest round in the bracket), use that. Otherwise fall back to
+ * the league's default `matchFormat`.
+ *
+ * `totalRounds` should be the highest `round` in the bracket — caller
+ * computes once per render and passes in.
+ */
+export function formatForMatch(args: {
+  matchRound: number;
+  totalRounds: number;
+  matchFormat: MatchFormat;
+  finalMatchFormat: MatchFormat | null;
+}): MatchFormat {
+  const { matchRound, totalRounds, matchFormat, finalMatchFormat } = args;
+  if (
+    finalMatchFormat !== null &&
+    finalMatchFormat !== matchFormat &&
+    matchRound === totalRounds &&
+    totalRounds > 0
+  ) {
+    return finalMatchFormat;
+  }
+  return matchFormat;
+}
+
+/**
+ * v1.9: human-readable description of the per-round format setup,
+ * used on public/manage pages.
+ *
+ *   "Best of 3" — single format
+ *   "Best of 3 · Final: Best of 5" — split formats
+ */
+export function describeFormatSplit(
+  matchFormat: MatchFormat,
+  finalMatchFormat: MatchFormat | null,
+): string {
+  const main = FORMAT_RULES[matchFormat].label;
+  if (!finalMatchFormat || finalMatchFormat === matchFormat) {
+    return main;
+  }
+  return `${main} · Final: ${FORMAT_RULES[finalMatchFormat].label}`;
 }

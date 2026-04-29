@@ -374,6 +374,8 @@ export async function duplicateLeagueAction(formData: FormData) {
       // v1.7: preserve match format + game-depth context. These are
       // game-specific, not calendar-specific.
       matchFormat: source.matchFormat,
+      // v1.9: preserve the final-match format override too.
+      finalMatchFormat: source.finalMatchFormat,
       rules: source.rules,
       mapPool: source.mapPool,
     },
@@ -424,6 +426,8 @@ export async function updateLeagueAction(
     // the league is past OPEN, which means submitted forms from those
     // states won't include a `matchFormat` value either way.
     matchFormat: String(formData.get("matchFormat") ?? league.matchFormat),
+    // v1.9: optional final-match format override.
+    finalMatchFormat: String(formData.get("finalMatchFormat") ?? ""),
     rules: String(formData.get("rules") ?? ""),
     mapPool: String(formData.get("mapPool") ?? ""),
   });
@@ -476,6 +480,12 @@ export async function updateLeagueAction(
       lookingForTeams: parsed.data.lookingForTeams,
       // v1.7: match format + game depth.
       matchFormat: parsed.data.matchFormat,
+      // v1.9: persist final-match override; null if same as default.
+      finalMatchFormat:
+        parsed.data.finalMatchFormat &&
+        parsed.data.finalMatchFormat !== parsed.data.matchFormat
+          ? parsed.data.finalMatchFormat
+          : null,
       rules: parsed.data.rules ?? null,
       mapPool: parsed.data.mapPool ?? null,
     },

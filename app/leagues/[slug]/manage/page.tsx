@@ -21,7 +21,11 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { VisibilityPill } from "@/components/visibility-pill";
 import { shouldShowLookingForTeams } from "@/lib/league-access";
-import { FORMAT_RULES, formatScorePair } from "@/lib/match-format";
+import {
+  FORMAT_RULES,
+  describeFormatSplit,
+  formatScorePair,
+} from "@/lib/match-format";
 import {
   canCancelLeague,
   canPublishLeague,
@@ -209,6 +213,17 @@ export default async function ManageLeaguePage({ params }: Props) {
   if (!league) notFound();
   if (league.organizerId !== session.user.id) notFound();
 
+  // v1.9: at-a-glance match stats for the status summary strip.
+  const [matchesPlayedCount, totalMatchesCount] = await Promise.all([
+    prisma.match.count({
+      where: {
+        leagueId: league.id,
+        status: { in: ["CONFIRMED", "ORGANIZER_DECIDED"] },
+      },
+    }),
+    prisma.match.count({ where: { leagueId: league.id } }),
+  ]);
+
   const disputedMatches = await prisma.match.findMany({
     where: { leagueId: league.id, status: "DISPUTED" },
     orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
@@ -296,6 +311,33 @@ export default async function ManageLeaguePage({ params }: Props) {
           <p className="mt-2 text-foreground-muted">{league.description}</p>
         )}
 
+        {/* v1.9: at-a-glance status strip. Surfaces the numbers most
+            relevant to "is this league running OK right now?" without
+            scrolling. */}
+        <section className="mt-6 grid gap-3 grid-cols-2 sm:grid-cols-4">
+          <ManageStat
+            label="Teams"
+            value={`${league.teams.length}/${league.maxTeams}`}
+          />
+          <ManageStat
+            label="Matches"
+            value={
+              totalMatchesCount > 0
+                ? `${matchesPlayedCount}/${totalMatchesCount}`
+                : "—"
+            }
+          />
+          <ManageStat
+            label="Disputes"
+            value={disputedMatches.length}
+            accent={disputedMatches.length > 0 ? "warning" : undefined}
+          />
+          <ManageStat
+            label="Eligible"
+            value={eligibleCount}
+          />
+        </section>
+
         <section className="mt-8">
           <Card>
             {currentItem ? (
@@ -381,7 +423,10 @@ export default async function ManageLeaguePage({ params }: Props) {
                 Format
               </dt>
               <dd className="mt-1.5 text-sm">
-                {FORMAT_RULES[league.matchFormat].label}
+                {describeFormatSplit(
+                  league.matchFormat,
+                  league.finalMatchFormat,
+                )}
                 {league.state === "IN_PROGRESS" ||
                 league.state === "COMPLETED" ? (
                   <span className="ml-2 font-mono text-[11px] text-foreground-subtle">
@@ -531,6 +576,8 @@ export default async function ManageLeaguePage({ params }: Props) {
                 // v1.7: match format + game depth.
                 state: league.state,
                 matchFormat: league.matchFormat,
+                // v1.9: per-round override.
+                finalMatchFormat: league.finalMatchFormat,
                 rules: league.rules,
                 mapPool: league.mapPool,
               }}
@@ -977,5 +1024,33 @@ export default async function ManageLeaguePage({ params }: Props) {
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+// v1.9: manage-page status strip cell. Tiny variant of the dashboard
+// stat card — just label + value, with optional warning accent when a
+// metric needs the organizer's attention (e.g. open disputes).
+function ManageStat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number | string;
+  accent?: "warning";
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <p className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+        {label}
+      </p>
+      <p
+        className={`mt-1.5 font-mono text-xl font-semibold tracking-tight ${
+          accent === "warning" ? "text-warning" : "text-foreground"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }

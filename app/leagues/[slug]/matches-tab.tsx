@@ -40,6 +40,8 @@ type Props = {
   isOrganizer?: boolean;
   /** v1.7: League.matchFormat — drives match modal score inputs. */
   matchFormat: MatchFormat;
+  /** v1.9: optional override for the final match. */
+  finalMatchFormat?: MatchFormat | null;
   /** Match id to open on mount (from `?match=` deep link). Server has
    * already validated that the id exists in this league. */
   initialMatchId?: string | null;
@@ -50,10 +52,18 @@ export function MatchesTab({
   viewerId,
   isOrganizer = false,
   matchFormat,
+  finalMatchFormat = null,
   initialMatchId = null,
 }: Props) {
   const [openMatchId, setOpenMatchId] = useState<string | null>(initialMatchId);
   const openMatch = matches.find((m) => m.id === openMatchId) ?? null;
+
+  // v1.9: highest round in the bracket — needed so the modal knows
+  // which format applies to the open match (default vs final-only).
+  const totalRounds = matches.reduce(
+    (acc, m) => (m.round > acc ? m.round : acc),
+    0,
+  );
 
   if (matches.length === 0) {
     return (
@@ -82,6 +92,8 @@ export function MatchesTab({
         viewerId={viewerId}
         isOrganizer={isOrganizer}
         matchFormat={matchFormat}
+        finalMatchFormat={finalMatchFormat}
+        totalRounds={totalRounds}
         onClose={() => setOpenMatchId(null)}
       />
     </>

@@ -53,6 +53,15 @@ const stateLabel: Record<string, string> = {
   DRAFT: "Draft",
 };
 
+// v1.9: human-readable match format labels.
+const FORMAT_LABEL: Record<string, string> = {
+  BEST_OF_3: "Best of 3",
+  BEST_OF_5: "Best of 5",
+  BEST_OF_7: "Best of 7",
+  SINGLE_SCORE: "Single game with score",
+  FREEFORM: "Free-form score",
+};
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const league = await prisma.league.findUnique({
@@ -504,44 +513,52 @@ export default async function PublicLeaguePage({
                 </Card>
               </div>
 
-              {/* v1.7: format / rules / map pool. Prominent so captains
-                  know what they signed up for. */}
-              {(league.rules || league.mapPool) && (
-                <div className="mt-8 grid gap-4 md:grid-cols-2">
-                  <div className="rounded-lg border border-border bg-surface p-5">
-                    <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-                      Match rules
-                    </h3>
-                    <p className="mt-3 font-mono text-xs text-foreground-subtle">
-                      Format:{" "}
-                      <span className="text-foreground">
-                        {{
-                          BEST_OF_3: "Best of 3",
-                          BEST_OF_5: "Best of 5",
-                          BEST_OF_7: "Best of 7",
-                          SINGLE_SCORE: "Single game with score",
-                          FREEFORM: "Free-form",
-                        }[league.matchFormat]}
-                      </span>
-                    </p>
-                    {league.rules && (
-                      <p className="mt-3 whitespace-pre-wrap text-sm">
-                        {league.rules}
-                      </p>
-                    )}
-                  </div>
-                  {league.mapPool && (
-                    <div className="rounded-lg border border-border bg-surface p-5">
-                      <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-                        Map pool
-                      </h3>
-                      <p className="mt-3 whitespace-pre-wrap font-mono text-xs text-foreground-muted">
-                        {league.mapPool}
-                      </p>
+              {/* v1.7 + v1.9: format / rules / map pool. Always shown
+                  (format is meaningful even without rules text), and
+                  the format display surfaces the split when set. */}
+              <div className="mt-8 grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-border bg-surface p-5">
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                    Match rules
+                  </h3>
+                  <dl className="mt-3 flex flex-col gap-2 text-sm">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                      <dt className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">
+                        All rounds
+                      </dt>
+                      <dd className="font-mono">
+                        {FORMAT_LABEL[league.matchFormat]}
+                      </dd>
                     </div>
+                    {league.finalMatchFormat &&
+                      league.finalMatchFormat !== league.matchFormat && (
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                          <dt className="font-mono text-[11px] uppercase tracking-wider text-success">
+                            Final
+                          </dt>
+                          <dd className="font-mono text-success">
+                            {FORMAT_LABEL[league.finalMatchFormat]}
+                          </dd>
+                        </div>
+                      )}
+                  </dl>
+                  {league.rules && (
+                    <p className="mt-4 whitespace-pre-wrap text-sm text-foreground-muted">
+                      {league.rules}
+                    </p>
                   )}
                 </div>
-              )}
+                {league.mapPool && (
+                  <div className="rounded-lg border border-border bg-surface p-5">
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
+                      Map pool
+                    </h3>
+                    <p className="mt-3 whitespace-pre-wrap font-mono text-xs text-foreground-muted">
+                      {league.mapPool}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {league.prizeNotes && (
                 <div className="mt-8 rounded-lg border border-border bg-surface p-5">
@@ -633,6 +650,7 @@ export default async function PublicLeaguePage({
                 viewerId={viewerId}
                 isOrganizer={isOrganizer}
                 matchFormat={league.matchFormat}
+                finalMatchFormat={league.finalMatchFormat}
                 initialMatchId={initialMatchId}
               />
             </TabsContent>

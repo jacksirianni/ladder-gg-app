@@ -192,6 +192,10 @@ model League {
   // v1.7: how match scores are structured. Locked once IN_PROGRESS so
   // existing reports can't be reinterpreted under new rules.
   matchFormat          MatchFormat      @default(SINGLE_SCORE)
+  // v1.9: optional override for the final match. When set, the highest-
+  // round match in the bracket uses this format; all other matches
+  // use `matchFormat`. Common pattern: BO3 throughout, BO5 final.
+  finalMatchFormat     MatchFormat?
   // v1.7: free-form rules text — ruleset, region, special restrictions.
   rules                String?
   // v1.7: free-form map pool — newline-separated, organizer-managed.

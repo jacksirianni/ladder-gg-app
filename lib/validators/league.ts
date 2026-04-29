@@ -35,6 +35,12 @@ const matchFormatEnum = z.enum([
   "FREEFORM",
 ]);
 
+// v1.9: optional final-match format. Empty submit (toggle off) → undefined.
+const optionalMatchFormat = z.preprocess(
+  (v) => (v === "" || v === "NONE" || v === undefined ? undefined : v),
+  matchFormatEnum.optional(),
+);
+
 // v1.7: longer free-text — rules and map pool, separate cap from
 // description / payment instructions so organizers can paste a real
 // map list.
@@ -85,6 +91,8 @@ const sharedLeagueFields = {
   lookingForTeams: checkboxBoolean.default(false),
   // v1.7: match format + game depth.
   matchFormat: matchFormatEnum.default("SINGLE_SCORE"),
+  // v1.9: optional override for the final.
+  finalMatchFormat: optionalMatchFormat,
   rules: optionalDeepText("Rules", 1000),
   mapPool: optionalDeepText("Map pool", 1000),
 };

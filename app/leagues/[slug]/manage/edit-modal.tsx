@@ -40,6 +40,8 @@ type LeagueForEdit = {
   // v1.7: match format + game depth.
   state: LeagueState;
   matchFormat: MatchFormat;
+  // v1.9: optional final-match override.
+  finalMatchFormat: MatchFormat | null;
   rules: string | null;
   mapPool: string | null;
 };
@@ -249,10 +251,12 @@ export function EditLeagueButton({ league, teamCount }: Props) {
           />
 
           {/* v1.7: match format + rules + map pool. matchFormat is locked
-              once IN_PROGRESS so existing scores aren't reinterpreted. */}
+              once IN_PROGRESS so existing scores aren't reinterpreted.
+              v1.9: also pass the optional final-match override. */}
           <MatchRulesFields
             defaults={{
               matchFormat: league.matchFormat,
+              finalMatchFormat: league.finalMatchFormat,
               rules: league.rules ?? "",
               mapPool: league.mapPool ?? "",
             }}
