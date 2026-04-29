@@ -1,7 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { MatchFormat, MatchStatus } from "@prisma/client";
+import type {
+  MatchBracket,
+  MatchFormat,
+  MatchStatus,
+} from "@prisma/client";
 import {
   Dialog,
   DialogDescription,
@@ -28,6 +32,8 @@ import { formatRelativeTime } from "@/lib/relative-time";
 
 type Match = {
   id: string;
+  // v2.0: which bracket (DE: WINNERS / LOSERS / GRAND_FINAL / GRAND_RESET).
+  bracket: MatchBracket;
   round: number;
   bracketPosition: number;
   status: MatchStatus;
@@ -122,14 +128,34 @@ export function MatchActionModal({
 
   // v1.9: figure out which format applies to *this* match. The final
   // gets the override (if set); everything else uses the default.
-  const isFinal = totalRounds > 0 && match.round === totalRounds;
+  // v2.0: in DE, GF and GR also count as "the final" for the format
+  // override.
+  const isWinnersFinal =
+    match.bracket === "WINNERS" &&
+    totalRounds > 0 &&
+    match.round === totalRounds;
+  const isGrandFinal =
+    match.bracket === "GRAND_FINAL" || match.bracket === "GRAND_RESET";
+  const isFinal = isWinnersFinal || isGrandFinal;
   const effectiveFormat = formatForMatch({
     matchRound: match.round,
     totalRounds,
     matchFormat,
-    finalMatchFormat,
+    finalMatchFormat: isGrandFinal ? finalMatchFormat : finalMatchFormat,
   });
   const effectiveRules = FORMAT_RULES[effectiveFormat];
+
+  // v2.0: bracket-aware title prefix.
+  const bracketPrefix =
+    match.bracket === "GRAND_FINAL"
+      ? "Grand final"
+      : match.bracket === "GRAND_RESET"
+        ? "Grand final reset"
+        : match.bracket === "LOSERS"
+          ? `Losers R${match.round}`
+          : isWinnersFinal
+            ? "Final"
+            : `Round ${match.round}`;
 
   const isCaptainInMatch =
     !!viewerId &&
@@ -201,8 +227,14 @@ export function MatchActionModal({
       }}
     >
       <DialogTitle>
-        {isFinal ? "Final" : `Round ${match.round}`} · Match{" "}
-        {match.bracketPosition}
+        {bracketPrefix}
+        {match.bracket !== "GRAND_FINAL" &&
+          match.bracket !== "GRAND_RESET" && (
+            <>
+              {" "}
+              · Match {match.bracketPosition}
+            </>
+          )}
       </DialogTitle>
       <DialogDescription>
         <span className="font-mono text-[11px] uppercase tracking-wider text-foreground-subtle">

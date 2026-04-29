@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { MatchFormat } from "@prisma/client";
+import type { LeagueFormat, MatchFormat } from "@prisma/client";
 import { FormField } from "@/components/ui/form-field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,11 +19,16 @@ type Props = {
     finalMatchFormat?: MatchFormat | null;
     rules?: string;
     mapPool?: string;
+    /** v2.0: tournament format. */
+    format?: LeagueFormat;
+    /** v2.0: whether the LB winner taking the GF triggers a reset. */
+    allowBracketReset?: boolean;
   };
   /** Field errors keyed by field name (matches schema field names). */
   fieldErrors?: FieldErrors;
   /** When true, the matchFormat select is disabled (locked once league
-   *  is IN_PROGRESS so retroactive scores can't be reinterpreted). */
+   *  is IN_PROGRESS so retroactive scores can't be reinterpreted).
+   *  v2.0: also locks the tournament format selector. */
   formatLocked?: boolean;
 };
 
@@ -59,28 +64,48 @@ const FORMAT_OPTIONS: {
   },
 ];
 
+const TOURNAMENT_FORMAT_OPTIONS: {
+  value: LeagueFormat;
+  label: string;
+  helper: string;
+}[] = [
+  {
+    value: "SINGLE_ELIM",
+    label: "Single elimination",
+    helper:
+      "One loss and you're out. Any team count works (byes auto-fill the bracket).",
+  },
+  {
+    value: "DOUBLE_ELIM",
+    label: "Double elimination",
+    helper:
+      "One loss drops you to the losers bracket. Two losses and you're out. Power-of-2 team counts only (4, 8, 16, 32) in v2.0.",
+  },
+];
+
 /**
  * Shared "Match rules" fieldset. Used by the create-league form and the
- * edit-modal. Captures matchFormat, finalMatchFormat, rules, mapPool.
+ * edit-modal. Captures matchFormat, finalMatchFormat, rules, mapPool,
+ * tournament format, and bracket-reset preference (DE-only).
  *
- * v1.9 adds the per-round override: an opt-in toggle reveals a second
- * format select for the final match. The standard pattern is BO3 for
- * everything else with BO5 for the final.
+ * v2.0 adds:
+ *   - tournament format selector (Single / Double elimination)
+ *   - bracket-reset checkbox (only shown for DE)
+ *   - shows a power-of-2 hint when DE is selected
  *
- * Parent forms that want to push new presets (e.g. game-chip clicks)
- * pass a changing `key` to remount this component with fresh defaults.
+ * Parent forms that want to push new presets pass a changing `key` to
+ * remount this component with fresh defaults.
  */
 export function MatchRulesFields({
   defaults,
   fieldErrors,
   formatLocked,
 }: Props) {
-  const [format, setFormat] = useState<MatchFormat>(
+  const [matchFormat, setMatchFormat] = useState<MatchFormat>(
     defaults?.matchFormat ?? "SINGLE_SCORE",
   );
   const [rules, setRules] = useState<string>(defaults?.rules ?? "");
   const [mapPool, setMapPool] = useState<string>(defaults?.mapPool ?? "");
-  // v1.9: independent final-format toggle + value.
   const [finalDifferent, setFinalDifferent] = useState<boolean>(
     !!defaults?.finalMatchFormat &&
       defaults?.finalMatchFormat !== defaults?.matchFormat,
@@ -88,20 +113,80 @@ export function MatchRulesFields({
   const [finalFormat, setFinalFormat] = useState<MatchFormat>(
     defaults?.finalMatchFormat ?? "BEST_OF_5",
   );
+  // v2.0
+  const [format, setFormat] = useState<LeagueFormat>(
+    defaults?.format ?? "SINGLE_ELIM",
+  );
+  const [allowBracketReset, setAllowBracketReset] = useState<boolean>(
+    defaults?.allowBracketReset ?? true,
+  );
 
-  const helper = FORMAT_OPTIONS.find((o) => o.value === format)?.helper;
-  // v1.9: only show the per-round toggle for BO-N formats. SINGLE_SCORE
-  // and FREEFORM don't really have a "more games" upgrade path.
+  const helper = FORMAT_OPTIONS.find((o) => o.value === matchFormat)?.helper;
   const formatSupportsFinalOverride =
-    format === "BEST_OF_3" ||
-    format === "BEST_OF_5" ||
-    format === "BEST_OF_7";
+    matchFormat === "BEST_OF_3" ||
+    matchFormat === "BEST_OF_5" ||
+    matchFormat === "BEST_OF_7";
 
   return (
     <fieldset className="flex flex-col gap-5 rounded-lg border border-border bg-surface/40 p-5">
       <legend className="px-1 font-mono text-xs uppercase tracking-widest text-foreground-subtle">
         Match rules
       </legend>
+
+      {/* v2.0: tournament format. Single vs Double elim. */}
+      <FormField
+        label="Tournament format"
+        htmlFor="format"
+        hint={
+          formatLocked
+            ? "Locked while the bracket is in progress."
+            : TOURNAMENT_FORMAT_OPTIONS.find((o) => o.value === format)
+                ?.helper
+        }
+        error={fieldErrors?.format}
+      >
+        <Select
+          id="format"
+          name="format"
+          value={format}
+          onChange={(e) => setFormat(e.target.value as LeagueFormat)}
+          disabled={formatLocked}
+        >
+          {TOURNAMENT_FORMAT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </Select>
+      </FormField>
+
+      {/* v2.0: bracket-reset toggle, DE only. */}
+      {format === "DOUBLE_ELIM" && (
+        <div className="rounded-md border border-border bg-surface px-4 py-3">
+          <label
+            htmlFor="allowBracketReset"
+            className="flex cursor-pointer items-start gap-3 text-sm"
+          >
+            <input
+              id="allowBracketReset"
+              name="allowBracketReset"
+              type="checkbox"
+              checked={allowBracketReset}
+              onChange={(e) => setAllowBracketReset(e.target.checked)}
+              disabled={formatLocked}
+              className="mt-0.5 h-4 w-4 accent-primary"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">Allow bracket reset</p>
+              <p className="mt-0.5 text-xs text-foreground-muted">
+                If the losers-bracket winner takes the first grand final,
+                play a second grand final. The winners-bracket team had no
+                losses up to that point — this gives them a fair shot.
+              </p>
+            </div>
+          </label>
+        </div>
+      )}
 
       <FormField
         label="Match format"
@@ -116,8 +201,8 @@ export function MatchRulesFields({
         <Select
           id="matchFormat"
           name="matchFormat"
-          value={format}
-          onChange={(e) => setFormat(e.target.value as MatchFormat)}
+          value={matchFormat}
+          onChange={(e) => setMatchFormat(e.target.value as MatchFormat)}
           disabled={formatLocked}
         >
           {FORMAT_OPTIONS.map((opt) => (
@@ -128,9 +213,7 @@ export function MatchRulesFields({
         </Select>
       </FormField>
 
-      {/* v1.9: optional final-match format override. Only meaningful for
-          BO-N formats — extending a series for the final game is the
-          common pattern, not changing FREEFORM/SINGLE_SCORE. */}
+      {/* v1.9: optional final-match format override. */}
       {formatSupportsFinalOverride && (
         <div className="rounded-md border border-border bg-surface px-4 py-3">
           <label
@@ -150,7 +233,7 @@ export function MatchRulesFields({
                 Use a different format for the final match
               </p>
               <p className="mt-0.5 text-xs text-foreground-muted">
-                Common pattern: {FORMAT_RULES[format].label} for early
+                Common pattern: {FORMAT_RULES[matchFormat].label} for early
                 rounds, longer series for the final.
               </p>
             </div>
@@ -168,7 +251,7 @@ export function MatchRulesFields({
                 disabled={formatLocked}
                 aria-label="Final match format"
               >
-                {FORMAT_OPTIONS.filter((o) => o.value !== format).map(
+                {FORMAT_OPTIONS.filter((o) => o.value !== matchFormat).map(
                   (opt) => (
                     <option key={opt.value} value={opt.value}>
                       Final: {opt.label}
@@ -181,14 +264,12 @@ export function MatchRulesFields({
               </p>
             </div>
           )}
-          {/* Hidden submit value so the server gets a clear "off" signal. */}
           {!finalDifferent && (
             <input type="hidden" name="finalMatchFormat" value="" />
           )}
         </div>
       )}
 
-      {/* For non-BO-N formats, ensure we still post a clean "off" value. */}
       {!formatSupportsFinalOverride && (
         <input type="hidden" name="finalMatchFormat" value="" />
       )}

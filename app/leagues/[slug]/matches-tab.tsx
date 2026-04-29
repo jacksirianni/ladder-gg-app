@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import type { MatchFormat, MatchStatus } from "@prisma/client";
+import type {
+  MatchBracket,
+  MatchFormat,
+  MatchStatus,
+} from "@prisma/client";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MatchRow } from "@/components/match-row";
 import { MatchActionModal } from "@/components/match-action-modal";
 
 export type MatchForTab = {
   id: string;
+  // v2.0: which bracket (DE: WINNERS / LOSERS / GRAND_FINAL / GRAND_RESET)
+  bracket: MatchBracket;
   round: number;
   bracketPosition: number;
   status: MatchStatus;

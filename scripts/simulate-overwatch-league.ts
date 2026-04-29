@@ -1,23 +1,27 @@
 /**
- * One-shot simulation script that builds a fully-played 7-team
+ * One-shot simulation script that builds a fully-played
  * "Overwatch: NYC Lower East Side" league owned by jacksirianni@icloud.com.
  *
- * Creates 6 test accounts (or reuses by email), spins up a published
+ * Creates 6+ test accounts (or reuses by email), spins up a published
  * league with one team per captain, generates the bracket, and walks
  * through every match — reporting + confirming each one — with Jack's
  * team winning whenever it plays.
  *
- * Mirrors the production server actions (startLeagueAction +
- * confirmMatchAction) directly against Prisma so we don't need an auth
- * session. Idempotent at the user-creation layer (upsert by email)
- * but creates a fresh league each run.
+ * v2.0: now uses `applyMatchCascade` from `lib/bracket/apply-cascade.ts`
+ * — the same code path the real confirmMatchAction uses. This is the
+ * primary correctness check for the DE cascade.
  *
  * Run with:
- *   npx tsx scripts/simulate-overwatch-league.ts
+ *   npx tsx scripts/simulate-overwatch-league.ts            # SE, 8 teams
+ *   FORMAT=DOUBLE_ELIM npx tsx scripts/simulate-overwatch-league.ts
  */
 
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
+import {
+  applyMatchCascade,
+  computeBracketSize,
+} from "@/lib/bracket/apply-cascade";
 import { generateBracketMatches } from "@/lib/bracket/generate";
 import { generateHandle } from "@/lib/handle";
 import { generateInviteToken } from "@/lib/token";
@@ -25,10 +29,6 @@ import { generateSlug } from "@/lib/slug";
 
 const JACK_EMAIL = "jacksirianni@icloud.com";
 
-// Note: scaled to 7 fake accounts (8 captains total with Jack) so the
-// bracket size is a clean power of two and we don't hit the bye-placement
-// edge case in the existing bracket generator. Slight deviation from the
-// "seven test accounts" ask, called out in the run summary.
 const TEST_ACCOUNTS = [
   { email: "arman@test.com", displayName: "Arman" },
   { email: "will@test.com", displayName: "Will" },
@@ -39,9 +39,6 @@ const TEST_ACCOUNTS = [
   { email: "jamie@test.com", displayName: "Jamie" },
 ];
 
-// Lower East Side neighborhood-themed Overwatch team names. Jack's team
-// is first so it's easy to identify in logs; the simulator decides the
-// pairings anyway.
 const TEAMS = [
   { captainEmail: JACK_EMAIL, name: "Lower East Lions" },
   { captainEmail: "arman@test.com", name: "Bowery Bastions" },
@@ -53,38 +50,44 @@ const TEAMS = [
   { captainEmail: "jamie@test.com", name: "Houston Hellions" },
 ];
 
-const LEAGUE_NAME =
-  "Overwatch: New York City Lower East Side of the Overwatch League";
-const LEAGUE_DESCRIPTION =
-  "Test bracket for the LES OWL crew. Single-elimination, best-of-5 maps.";
+const FORMAT = (process.env.FORMAT as "SINGLE_ELIM" | "DOUBLE_ELIM") ?? "SINGLE_ELIM";
+const ALLOW_BRACKET_RESET = process.env.ALLOW_RESET !== "0";
 
-// A realistic-ish set of map scores so the recap doesn't look canned.
+const LEAGUE_NAME =
+  FORMAT === "DOUBLE_ELIM"
+    ? "Overwatch: LES OWL — Double Elimination"
+    : "Overwatch: New York City Lower East Side of the Overwatch League";
+const LEAGUE_DESCRIPTION =
+  FORMAT === "DOUBLE_ELIM"
+    ? "DE test bracket — winners + losers brackets, optional grand-final reset."
+    : "Test bracket for the LES OWL crew. Single-elimination, best-of-5 maps.";
+
 const SCORES = ["3-1", "3-2", "3-0", "3-1", "3-2", "3-1"];
 function pickScore(matchIndex: number): string {
   return SCORES[matchIndex % SCORES.length];
 }
 
 async function main() {
+  console.log(`→ Format: ${FORMAT}${FORMAT === "DOUBLE_ELIM" ? ` (allowBracketReset=${ALLOW_BRACKET_RESET})` : ""}`);
   console.log("→ Locating Jack…");
-  const jack = await prisma.user.findUnique({
-    where: { email: JACK_EMAIL },
-  });
+  const jack = await prisma.user.findUnique({ where: { email: JACK_EMAIL } });
   if (!jack) {
     throw new Error(
       `${JACK_EMAIL} not found in the DB. Sign up first, then re-run.`,
     );
   }
   if (!jack.handle) {
-    // Defensive — backfill should have caught this, but recover anyway.
     const handle = await generateHandle(jack.displayName, prisma);
     await prisma.user.update({ where: { id: jack.id }, data: { handle } });
     console.log(`  backfilled handle for Jack: ${handle}`);
   }
   console.log(`  ✓ Jack: ${jack.displayName} (${jack.id})`);
 
-  console.log("→ Creating / reusing 6 test accounts…");
-  // Shared password for all test accounts. Hashed once outside the loop.
-  const sharedPasswordHash = await bcrypt.hash("test-account-password-1234", 12);
+  console.log("→ Creating / reusing 7 test accounts…");
+  const sharedPasswordHash = await bcrypt.hash(
+    "test-account-password-1234",
+    12,
+  );
 
   const testUsers: { email: string; id: string; displayName: string }[] = [];
   for (const acct of TEST_ACCOUNTS) {
@@ -120,7 +123,6 @@ async function main() {
     });
   }
 
-  // Combined captain map for fast lookup when seeding teams.
   const captainsByEmail = new Map<string, { id: string; displayName: string }>();
   captainsByEmail.set(jack.email, {
     id: jack.id,
@@ -130,11 +132,7 @@ async function main() {
     captainsByEmail.set(u.email, { id: u.id, displayName: u.displayName });
   }
 
-  // Idempotency: nuke any prior simulation league of the same name so
-  // re-running the script is non-destructive to other dashboard items
-  // but doesn't pile up duplicates. Order matters — `MatchReport`'s
-  // `reportedWinnerTeamId` has onDelete: Restrict, so we have to clear
-  // reports + matches before teams + the league cascades can run.
+  // Idempotency: nuke any prior simulation league of the same name.
   const stale = await prisma.league.findMany({
     where: { name: LEAGUE_NAME, organizerId: jack.id },
     select: { id: true, slug: true },
@@ -142,13 +140,10 @@ async function main() {
   for (const s of stale) {
     console.log(`  · removing prior simulation league ${s.slug}`);
     await prisma.$transaction([
-      prisma.matchReport.deleteMany({
-        where: { match: { leagueId: s.id } },
-      }),
+      prisma.matchReport.deleteMany({ where: { match: { leagueId: s.id } } }),
+      prisma.matchEvidence.deleteMany({ where: { match: { leagueId: s.id } } }),
       prisma.match.deleteMany({ where: { leagueId: s.id } }),
-      prisma.teamRosterEntry.deleteMany({
-        where: { team: { leagueId: s.id } },
-      }),
+      prisma.teamRosterEntry.deleteMany({ where: { team: { leagueId: s.id } } }),
       prisma.team.deleteMany({ where: { leagueId: s.id } }),
       prisma.league.delete({ where: { id: s.id } }),
     ]);
@@ -172,11 +167,17 @@ async function main() {
       lookingForTeams: false,
       state: "OPEN",
       publishedAt: new Date(),
+      // v2.0
+      format: FORMAT,
+      allowBracketReset: FORMAT === "DOUBLE_ELIM" ? ALLOW_BRACKET_RESET : false,
+      // v1.7 + v1.9: BO3 default + BO5 final for the OW2 preset
+      matchFormat: "BEST_OF_3",
+      finalMatchFormat: "BEST_OF_5",
     },
   });
   console.log(`  ✓ League ${league.slug} (${league.id})`);
 
-  console.log("→ Registering 7 teams…");
+  console.log("→ Registering 8 teams…");
   const createdTeams: { id: string; name: string; captainUserId: string }[] = [];
   for (const t of TEAMS) {
     const captain = captainsByEmail.get(t.captainEmail);
@@ -186,12 +187,9 @@ async function main() {
         leagueId: league.id,
         name: t.name,
         captainUserId: captain.id,
-        // All paid so they're eligible for the bracket.
         paymentStatus: "PAID",
         roster: {
-          create: [
-            { displayName: captain.displayName, position: 0 },
-          ],
+          create: [{ displayName: captain.displayName, position: 0 }],
         },
       },
     });
@@ -203,19 +201,17 @@ async function main() {
     });
   }
 
-  // Identify Jack's team so we can crown him later.
-  const jackTeam = createdTeams.find((t) => t.captainUserId === jack.id);
-  if (!jackTeam) throw new Error("Jack's team somehow missing.");
-
   console.log("→ Generating bracket…");
-  // Mirror startLeagueAction: shuffle inside generateBracketMatches.
   const teamIds = createdTeams.map((t) => t.id);
-  const bracketMatches = generateBracketMatches(teamIds);
+  const bracketMatches = generateBracketMatches(teamIds, FORMAT, {
+    allowBracketReset: ALLOW_BRACKET_RESET,
+  });
 
   await prisma.$transaction([
     prisma.match.createMany({
       data: bracketMatches.map((m) => ({
         leagueId: league.id,
+        bracket: m.bracket,
         round: m.round,
         bracketPosition: m.bracketPosition,
         teamAId: m.teamAId,
@@ -231,15 +227,17 @@ async function main() {
   console.log(`  ✓ ${bracketMatches.length} matches, league IN_PROGRESS`);
 
   console.log("→ Simulating matches…");
-  // Simulate by repeatedly resolving any match in AWAITING_REPORT until
-  // there are none left. Each pass mirrors confirmMatchAction's
-  // bracket-advancement logic.
-  let safety = 50;
+  // Resolve any AWAITING_REPORT match repeatedly. Each pass calls the
+  // production cascade helper so the simulation exercises the same
+  // code path as confirmMatchAction.
+  let safety = 100;
   let matchIndex = 0;
+  const bracketSize = computeBracketSize(createdTeams.length, FORMAT);
+
   while (safety-- > 0) {
     const next = await prisma.match.findFirst({
       where: { leagueId: league.id, status: "AWAITING_REPORT" },
-      orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
+      orderBy: [{ bracket: "asc" }, { round: "asc" }, { bracketPosition: "asc" }],
       include: {
         teamA: { select: { id: true, name: true, captainUserId: true } },
         teamB: { select: { id: true, name: true, captainUserId: true } },
@@ -248,14 +246,11 @@ async function main() {
     if (!next) break;
     if (!next.teamA || !next.teamB) {
       throw new Error(
-        `Match R${next.round} M${next.bracketPosition} is AWAITING_REPORT but teams aren't both set.`,
+        `Match ${next.bracket} R${next.round} M${next.bracketPosition} is AWAITING_REPORT but teams aren't both set.`,
       );
     }
 
-    // Decide the winner. Jack's team always wins; otherwise team A wins
-    // by convention. Either captain could "report" — to mirror reality
-    // we'll have the LOSING captain submit the report and the winner
-    // confirm.
+    // Pick the winner — Jack always wins when in the match.
     const jackInMatch =
       next.teamA.captainUserId === jack.id ||
       next.teamB.captainUserId === jack.id;
@@ -270,13 +265,19 @@ async function main() {
     const reporterUserId = losingTeam.captainUserId;
     const confirmerUserId = winningTeam.captainUserId;
     const scoreText = pickScore(matchIndex++);
-
+    const label =
+      next.bracket === "GRAND_FINAL"
+        ? "Grand final"
+        : next.bracket === "GRAND_RESET"
+          ? "Grand reset"
+          : next.bracket === "LOSERS"
+            ? `LB R${next.round} M${next.bracketPosition}`
+            : `WB R${next.round} M${next.bracketPosition}`;
     console.log(
-      `  R${next.round} M${next.bracketPosition}: ${winningTeam.name} ${scoreText} ${losingTeam.name}`,
+      `  ${label}: ${winningTeam.name} ${scoreText} ${losingTeam.name}`,
     );
 
     await prisma.$transaction(async (tx) => {
-      // 1. Record the report (losing captain admits).
       await tx.matchReport.create({
         data: {
           matchId: next.id,
@@ -285,8 +286,6 @@ async function main() {
           scoreText,
         },
       });
-
-      // 2. Confirm the match (winning captain).
       await tx.match.update({
         where: { id: next.id },
         data: {
@@ -296,47 +295,21 @@ async function main() {
           resolvedByUserId: confirmerUserId,
         },
       });
-
-      // 3. Cascade to the next round (mirrors confirmMatchAction).
-      const nextRound = next.round + 1;
-      const nextPosition = Math.ceil(next.bracketPosition / 2);
-      const nextMatch = await tx.match.findUnique({
-        where: {
-          leagueId_round_bracketPosition: {
-            leagueId: league.id,
-            round: nextRound,
-            bracketPosition: nextPosition,
-          },
+      // v2.0: production cascade.
+      await applyMatchCascade(tx, {
+        leagueId: league.id,
+        leagueFormat: FORMAT,
+        allowBracketReset: ALLOW_BRACKET_RESET,
+        bracketSize,
+        match: {
+          id: next.id,
+          bracket: next.bracket,
+          round: next.round,
+          bracketPosition: next.bracketPosition,
+          teamAId: next.teamAId,
+          teamBId: next.teamBId,
+          winnerTeamId: winningTeam.id,
         },
-      });
-
-      if (!nextMatch) {
-        // Final match — mark the league completed.
-        await tx.league.update({
-          where: { id: league.id },
-          data: { state: "COMPLETED", completedAt: new Date() },
-        });
-        return;
-      }
-
-      const isTeamASlot = next.bracketPosition % 2 === 1;
-      const updateData: {
-        teamAId?: string;
-        teamBId?: string;
-        status?: "AWAITING_REPORT";
-      } = {};
-      if (isTeamASlot) updateData.teamAId = winningTeam.id;
-      else updateData.teamBId = winningTeam.id;
-
-      const futureTeamA = isTeamASlot ? winningTeam.id : nextMatch.teamAId;
-      const futureTeamB = isTeamASlot ? nextMatch.teamBId : winningTeam.id;
-      if (futureTeamA && futureTeamB) {
-        updateData.status = "AWAITING_REPORT";
-      }
-
-      await tx.match.update({
-        where: { id: nextMatch.id },
-        data: updateData,
       });
     });
   }
@@ -345,13 +318,13 @@ async function main() {
     throw new Error("Simulation safety counter exhausted — possible loop.");
   }
 
-  // Verify the league is COMPLETED and Jack won.
+  // Verify completion. For DE, prefer GRAND_RESET if it ran, then GRAND_FINAL,
+  // otherwise highest-round WB winner.
   const final = await prisma.league.findUnique({
     where: { id: league.id },
     include: {
       matches: {
         orderBy: [{ round: "desc" }, { bracketPosition: "asc" }],
-        take: 1,
         include: { winner: { select: { name: true } } },
       },
     },
@@ -359,9 +332,24 @@ async function main() {
   if (!final || final.state !== "COMPLETED") {
     throw new Error("League didn't reach COMPLETED state.");
   }
-  const championName = final.matches[0]?.winner?.name ?? "?";
+  let championName: string | undefined;
+  if (FORMAT === "DOUBLE_ELIM") {
+    const reset = final.matches.find(
+      (m) =>
+        m.bracket === "GRAND_RESET" &&
+        (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED"),
+    );
+    const grand = final.matches.find(
+      (m) =>
+        m.bracket === "GRAND_FINAL" &&
+        (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED"),
+    );
+    championName = (reset ?? grand)?.winner?.name;
+  } else {
+    championName = final.matches[0]?.winner?.name;
+  }
   console.log("\n────────────────────────────────────");
-  console.log(`✓ League completed. Champion: ${championName}`);
+  console.log(`✓ League completed. Champion: ${championName ?? "?"}`);
   console.log(`  Public:    /leagues/${league.slug}`);
   console.log(`  Manage:    /leagues/${league.slug}/manage`);
   console.log(`  Recap:     /leagues/${league.slug}/recap`);

@@ -1,8 +1,10 @@
-import type { MatchStatus } from "@prisma/client";
+import type { MatchBracket, MatchStatus } from "@prisma/client";
 import { cn } from "@/lib/cn";
 
 type BracketNodeProps = {
   match: {
+    // v2.0: which bracket the match lives in.
+    bracket: MatchBracket;
     round: number;
     bracketPosition: number;
     teamAId: string | null;

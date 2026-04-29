@@ -435,6 +435,23 @@ export default async function ManageLeaguePage({ params }: Props) {
                 ) : null}
               </dd>
             </div>
+            {/* v2.0: tournament format. */}
+            <div>
+              <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
+                Bracket type
+              </dt>
+              <dd className="mt-1.5 text-sm">
+                {league.format === "DOUBLE_ELIM"
+                  ? "Double elimination"
+                  : "Single elimination"}
+                {league.format === "DOUBLE_ELIM" &&
+                  league.allowBracketReset && (
+                    <span className="ml-2 font-mono text-[11px] text-foreground-subtle">
+                      with reset
+                    </span>
+                  )}
+              </dd>
+            </div>
             <div>
               <dt className="font-mono text-[11px] uppercase tracking-widest text-foreground-subtle">
                 Game
@@ -580,6 +597,9 @@ export default async function ManageLeaguePage({ params }: Props) {
                 finalMatchFormat: league.finalMatchFormat,
                 rules: league.rules,
                 mapPool: league.mapPool,
+                // v2.0: tournament format.
+                format: league.format,
+                allowBracketReset: league.allowBracketReset,
               }}
               teamCount={league.teams.length}
             />

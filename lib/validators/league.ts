@@ -41,6 +41,9 @@ const optionalMatchFormat = z.preprocess(
   matchFormatEnum.optional(),
 );
 
+// v2.0: tournament format (single- vs double-elimination).
+const formatEnum = z.enum(["SINGLE_ELIM", "DOUBLE_ELIM"]);
+
 // v1.7: longer free-text — rules and map pool, separate cap from
 // description / payment instructions so organizers can paste a real
 // map list.
@@ -95,6 +98,9 @@ const sharedLeagueFields = {
   finalMatchFormat: optionalMatchFormat,
   rules: optionalDeepText("Rules", 1000),
   mapPool: optionalDeepText("Map pool", 1000),
+  // v2.0: tournament format + bracket-reset preference.
+  format: formatEnum.default("SINGLE_ELIM"),
+  allowBracketReset: checkboxBoolean.default(false),
 };
 
 // v1.6: invariant — when both timestamps are set, the deadline must be

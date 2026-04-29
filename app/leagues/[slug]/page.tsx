@@ -208,6 +208,8 @@ export default async function PublicLeaguePage({
 
   const matchesForTab = league.matches.map((m) => ({
     id: m.id,
+    // v2.0: bracket flag for DE rendering.
+    bracket: m.bracket,
     round: m.round,
     bracketPosition: m.bracketPosition,
     status: m.status,

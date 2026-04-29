@@ -41,6 +41,9 @@ export async function createLeagueAction(
     finalMatchFormat: String(formData.get("finalMatchFormat") ?? ""),
     rules: String(formData.get("rules") ?? ""),
     mapPool: String(formData.get("mapPool") ?? ""),
+    // v2.0: tournament format + bracket-reset preference.
+    format: String(formData.get("format") ?? "SINGLE_ELIM"),
+    allowBracketReset: formData.get("allowBracketReset") ?? undefined,
   };
 
   const parsed = createLeagueSchema.safeParse(raw);
@@ -68,6 +71,8 @@ export async function createLeagueAction(
     finalMatchFormat,
     rules,
     mapPool,
+    format,
+    allowBracketReset,
     ...rest
   } = parsed.data;
   const buyInCents = Math.round(buyInDollars * 100);
@@ -117,6 +122,10 @@ export async function createLeagueAction(
             : null,
         rules: rules ?? null,
         mapPool: mapPool ?? null,
+        // v2.0: tournament format + bracket-reset preference.
+        format,
+        allowBracketReset:
+          format === "DOUBLE_ELIM" ? allowBracketReset : false,
       },
       select: { slug: true },
     });

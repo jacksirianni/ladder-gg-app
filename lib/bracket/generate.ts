@@ -1,19 +1,16 @@
+import type { LeagueFormat, MatchBracket } from "@prisma/client";
+
 /**
- * Single-elimination bracket generator with random seeding and automatic byes.
+ * Bracket generators for single- and double-elimination.
  *
- * Returns the full set of Match rows (round, position, teamA/B) needed to
- * represent the bracket. Total matches = N - 1 where N is team count.
- *
- * Bye placement (v1.8 — fixed): bye teams are placed in the *last* slots
- * of round 2, after all the slots reserved for round-1 winners. The
- * cascade in `confirmMatchAction` always advances R1 winners into R2 in
- * position order (R1 M1 winner → R2 slot 0, R1 M2 → slot 1, …) so bye
- * teams must occupy the slots R1 winners never touch — i.e. the tail of
- * round 2. Earlier (pre-v1.8) implementations interleaved byes at even
- * slots and silently overwrote them when R1 winners cascaded in.
+ * v2.0: split from a single function. `generateBracketMatches` now
+ * dispatches by format. Single-elim continues to support any team
+ * count via byes (v1.8 fix). Double-elim requires a power-of-2 team
+ * count in v2.0-A — bye support for DE is deferred to v2.1.
  */
 
 export type GeneratedMatch = {
+  bracket: MatchBracket;
   round: number;
   bracketPosition: number;
   teamAId: string | null;
@@ -29,7 +26,32 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
+/**
+ * Top-level dispatch by format.
+ *
+ * @param teamIds - shuffled or unshuffled team ids; we always shuffle
+ *                  internally for randomness
+ * @param format - SINGLE_ELIM or DOUBLE_ELIM
+ * @param options - format-specific options (allowBracketReset)
+ */
+export function generateBracketMatches(
+  teamIds: string[],
+  format: LeagueFormat = "SINGLE_ELIM",
+  options: { allowBracketReset?: boolean } = {},
+): GeneratedMatch[] {
+  if (format === "DOUBLE_ELIM") {
+    return generateDoubleElim(teamIds, options.allowBracketReset ?? true);
+  }
+  return generateSingleElim(teamIds);
+}
+
+/**
+ * Single-elimination generator. Preserved from v1.8 (post bye-fix).
+ * Any team count >= 2 is supported; non-power-of-2 counts use byes.
+ *
+ * Total matches = N - 1.
+ */
+export function generateSingleElim(teamIds: string[]): GeneratedMatch[] {
   const N = teamIds.length;
   if (N < 2) {
     throw new Error("Need at least 2 teams to generate a bracket.");
@@ -47,6 +69,7 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
   const r1MatchCount = r1Teams.length / 2;
   for (let i = 0; i < r1MatchCount; i++) {
     matches.push({
+      bracket: "WINNERS",
       round: 1,
       bracketPosition: i + 1,
       teamAId: r1Teams[2 * i],
@@ -54,17 +77,10 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
     });
   }
 
-  if (totalRounds === 1) {
-    // 2-team tournament: only round 1 exists.
-    return matches;
-  }
+  if (totalRounds === 1) return matches;
 
-  // Round 2: bracketSize / 4 matches → bracketSize / 2 slots.
-  // Slot layout (v1.8 fix):
-  //   - First `r1MatchCount` slots are placeholders for round-1 winners,
-  //     populated later by the confirm cascade in position order.
-  //   - Remaining slots are filled with bye teams (top of `shuffled`).
-  // This guarantees the cascade never overwrites a bye team.
+  // Round 2: bye teams placed at the END of slots so R1 winners
+  // (which cascade in position order) don't overwrite them. (v1.8 fix)
   const byeTeams = shuffled.slice(0, byes);
   const r2MatchCount = bracketSize / 4;
   const r2SlotCount = r2MatchCount * 2;
@@ -81,6 +97,7 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
 
   for (let i = 0; i < r2MatchCount; i++) {
     matches.push({
+      bracket: "WINNERS",
       round: 2,
       bracketPosition: i + 1,
       teamAId: r2Slots[2 * i],
@@ -95,6 +112,7 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
     const thisRoundMatches = prevRoundMatches / 2;
     for (let i = 0; i < thisRoundMatches; i++) {
       matches.push({
+        bracket: "WINNERS",
         round,
         bracketPosition: i + 1,
         teamAId: null,
@@ -103,6 +121,113 @@ export function generateBracketMatches(teamIds: string[]): GeneratedMatch[] {
     }
     prevRoundMatches = thisRoundMatches;
     round++;
+  }
+
+  return matches;
+}
+
+/**
+ * Double-elimination generator.
+ *
+ * v2.0-A constraint: requires a power-of-2 team count (4, 8, 16, 32).
+ * The validator enforces this before we get here.
+ *
+ * Geometry for N teams (power of 2):
+ *   - WB: log2(N) rounds, total N-1 matches (same as SE)
+ *   - LB: 2 * log2(N) - 2 rounds, total N-2 matches
+ *   - 1 grand final + optional 1 grand reset
+ *   - Total: 2N - 2 (or 2N - 1 with reset slot)
+ *
+ * Initial state:
+ *   - WB R1 has all teams paired (no byes since power-of-2)
+ *   - All later WB matches are PENDING with null teams
+ *   - LB matches are PENDING with null teams (filled by cascade)
+ *   - GF and (optional) GR are PENDING with null teams
+ */
+export function generateDoubleElim(
+  teamIds: string[],
+  allowBracketReset: boolean,
+): GeneratedMatch[] {
+  const N = teamIds.length;
+  if (N < 4) {
+    throw new Error("Double elimination requires at least 4 teams.");
+  }
+  // Power-of-2 enforcement: log2 must be integer.
+  const lg = Math.log2(N);
+  if (lg !== Math.floor(lg)) {
+    throw new Error(
+      `Double elimination requires a power-of-2 team count (4, 8, 16, 32). Got ${N}.`,
+    );
+  }
+
+  const shuffled = shuffle(teamIds);
+  const bracketSize = N;
+  const nWB = Math.log2(bracketSize);
+  const nLB = Math.max(0, 2 * nWB - 2);
+
+  const matches: GeneratedMatch[] = [];
+
+  // ---- Winners bracket ----
+  // R1: all teams paired in shuffle order.
+  const r1Count = bracketSize / 2;
+  for (let i = 0; i < r1Count; i++) {
+    matches.push({
+      bracket: "WINNERS",
+      round: 1,
+      bracketPosition: i + 1,
+      teamAId: shuffled[2 * i],
+      teamBId: shuffled[2 * i + 1],
+    });
+  }
+  // R2..nWB: empty placeholders.
+  for (let r = 2; r <= nWB; r++) {
+    const count = bracketSize / Math.pow(2, r);
+    for (let i = 0; i < count; i++) {
+      matches.push({
+        bracket: "WINNERS",
+        round: r,
+        bracketPosition: i + 1,
+        teamAId: null,
+        teamBId: null,
+      });
+    }
+  }
+
+  // ---- Losers bracket ----
+  // Pair-of-rounds geometry: LB R(2k-1) and LB R(2k) both have
+  // bracketSize / 2^(k+1) matches. (R1, R2: /4; R3, R4: /8; ...)
+  for (let r = 1; r <= nLB; r++) {
+    const k = Math.floor((r + 1) / 2);
+    const count = Math.max(1, bracketSize / Math.pow(2, k + 1));
+    for (let i = 0; i < count; i++) {
+      matches.push({
+        bracket: "LOSERS",
+        round: r,
+        bracketPosition: i + 1,
+        teamAId: null,
+        teamBId: null,
+      });
+    }
+  }
+
+  // ---- Grand final ----
+  matches.push({
+    bracket: "GRAND_FINAL",
+    round: 1,
+    bracketPosition: 1,
+    teamAId: null,
+    teamBId: null,
+  });
+
+  // ---- Optional grand reset ----
+  if (allowBracketReset) {
+    matches.push({
+      bracket: "GRAND_RESET",
+      round: 1,
+      bracketPosition: 1,
+      teamAId: null,
+      teamBId: null,
+    });
   }
 
   return matches;

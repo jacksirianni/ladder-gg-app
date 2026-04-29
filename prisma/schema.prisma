@@ -38,6 +38,31 @@ enum MatchStatus {
   ORGANIZER_DECIDED
 }
 
+// v2.0: tournament format. Single-elimination is the legacy default;
+// double-elimination adds a losers bracket so a single loss doesn't
+// eliminate you. v2.0-A only supports power-of-2 team counts in DE
+// (no byes); single-elim continues to support any count via byes.
+enum LeagueFormat {
+  SINGLE_ELIM
+  DOUBLE_ELIM
+}
+
+// v2.0: which bracket a match lives in. Only meaningful when
+// `League.format = DOUBLE_ELIM`. Single-elim leagues store every
+// match as `WINNERS` for backward compatibility.
+//
+//   WINNERS      — main bracket; one loss drops you to LOSERS
+//   LOSERS       — losers bracket; second loss eliminates you
+//   GRAND_FINAL  — WB-final winner vs LB-final winner (one match)
+//   GRAND_RESET  — optional second GF if LB winner takes the first
+//                  (only generated when League.allowBracketReset = true)
+enum MatchBracket {
+  WINNERS
+  LOSERS
+  GRAND_FINAL
+  GRAND_RESET
+}
+
 // v1.6: how captains are allowed to find / join a league. Distinct from
 // LeagueState (which models lifecycle) — visibility is a join-policy
 // switch the organizer flips independently of the bracket lifecycle.
@@ -196,6 +221,12 @@ model League {
   // round match in the bracket uses this format; all other matches
   // use `matchFormat`. Common pattern: BO3 throughout, BO5 final.
   finalMatchFormat     MatchFormat?
+  // v2.0: tournament format. Locked once IN_PROGRESS.
+  format               LeagueFormat     @default(SINGLE_ELIM)
+  // v2.0: in DOUBLE_ELIM, whether the LB winner taking the first GF
+  // triggers a second GF (the "bracket reset"). Default on; some
+  // organizers prefer a single GF for time.
+  allowBracketReset    Boolean          @default(true)
   // v1.7: free-form rules text — ruleset, region, special restrictions.
   rules                String?
   // v1.7: free-form map pool — newline-separated, organizer-managed.
@@ -277,6 +308,9 @@ model Match {
   teamBId          String?
   winnerTeamId     String?
   status           MatchStatus @default(PENDING)
+  // v2.0: which bracket this match is in. Default WINNERS for legacy
+  // (single-elim) leagues — they only have one bracket.
+  bracket          MatchBracket @default(WINNERS)
   // v1.7: structured scores. Interpretation depends on League.matchFormat:
   //   BO-N: games won by each team (winner derived from these)
   //   SINGLE_SCORE: optional points/rounds/goals (winner explicit on Match)
@@ -300,7 +334,11 @@ model Match {
   // v1.7: external evidence — replay codes, screenshots, VOD links, etc.
   evidence   MatchEvidence[]
 
-  @@unique([leagueId, round, bracketPosition])
+  // v2.0: bracket added so WB and LB matches with the same
+  // (leagueId, round, bracketPosition) don't collide in DE leagues.
+  // Single-elim leagues all have bracket = WINNERS so this stays
+  // backward-compatible.
+  @@unique([leagueId, bracket, round, bracketPosition])
   @@index([leagueId])
 }
 

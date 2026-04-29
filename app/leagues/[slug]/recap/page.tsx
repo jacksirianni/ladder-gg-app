@@ -59,6 +59,8 @@ export default async function LeagueRecapPage({ params }: Props) {
         orderBy: [{ round: "desc" }, { bracketPosition: "asc" }],
         select: {
           id: true,
+          // v2.0: bracket flag drives DE final-match selection.
+          bracket: true,
           round: true,
           bracketPosition: true,
           status: true,
@@ -160,13 +162,32 @@ export default async function LeagueRecapPage({ params }: Props) {
   // -----------------------------------------------------------------
   // Completed: full recap.
   // -----------------------------------------------------------------
-  const finalMatch =
-    league.matches.length > 0
-      ? league.matches.reduce(
-          (acc, m) => (m.round > acc.round ? m : acc),
-          league.matches[0],
-        )
-      : null;
+  // v2.0: in double-elim, the "final" is GRAND_RESET (if played) or
+  // GRAND_FINAL — not the WB final. Single-elim still picks the
+  // highest-round WINNERS match.
+  const isDoubleElim = league.format === "DOUBLE_ELIM";
+  let finalMatch: (typeof league.matches)[number] | null = null;
+  if (isDoubleElim) {
+    const reset = league.matches.find(
+      (m) =>
+        m.bracket === "GRAND_RESET" &&
+        (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED"),
+    );
+    const grand = league.matches.find(
+      (m) =>
+        m.bracket === "GRAND_FINAL" &&
+        (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED"),
+    );
+    finalMatch = reset ?? grand ?? null;
+  } else {
+    finalMatch =
+      league.matches.length > 0
+        ? league.matches.reduce(
+            (acc, m) => (m.round > acc.round ? m : acc),
+            league.matches[0],
+          )
+        : null;
+  }
   const winnerTeam = finalMatch?.winnerTeamId
     ? league.teams.find((t) => t.id === finalMatch.winnerTeamId) ?? null
     : null;

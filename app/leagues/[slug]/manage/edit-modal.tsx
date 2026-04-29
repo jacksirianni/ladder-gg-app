@@ -1,7 +1,12 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { LeagueState, LeagueVisibility, MatchFormat } from "@prisma/client";
+import type {
+  LeagueFormat,
+  LeagueState,
+  LeagueVisibility,
+  MatchFormat,
+} from "@prisma/client";
 import {
   Dialog,
   DialogDescription,
@@ -44,6 +49,9 @@ type LeagueForEdit = {
   finalMatchFormat: MatchFormat | null;
   rules: string | null;
   mapPool: string | null;
+  // v2.0: tournament format.
+  format: LeagueFormat;
+  allowBracketReset: boolean;
 };
 
 type Props = {
@@ -259,6 +267,9 @@ export function EditLeagueButton({ league, teamCount }: Props) {
               finalMatchFormat: league.finalMatchFormat,
               rules: league.rules ?? "",
               mapPool: league.mapPool ?? "",
+              // v2.0: tournament format
+              format: league.format,
+              allowBracketReset: league.allowBracketReset,
             }}
             fieldErrors={state.fieldErrors}
             formatLocked={

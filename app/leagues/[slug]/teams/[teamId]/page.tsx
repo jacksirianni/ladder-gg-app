@@ -295,7 +295,13 @@ export default async function TeamPage({ params }: Props) {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-xs text-foreground-subtle">
-                            R{m.round} · M{m.bracketPosition}
+                            {m.bracket === "GRAND_FINAL"
+                              ? "Grand final"
+                              : m.bracket === "GRAND_RESET"
+                                ? "Grand reset"
+                                : m.bracket === "LOSERS"
+                                  ? `LB R${m.round} · M${m.bracketPosition}`
+                                  : `R${m.round} · M${m.bracketPosition}`}
                           </span>
                           <Badge variant={statusVariant[m.status]}>
                             {statusLabel[m.status]}

@@ -11,6 +11,10 @@ import {
   canPublishLeague,
 } from "@/lib/transitions/league";
 import { generateBracketMatches } from "@/lib/bracket/generate";
+import {
+  applyMatchCascade,
+  computeBracketSize,
+} from "@/lib/bracket/apply-cascade";
 import { generateInviteToken } from "@/lib/token";
 import { generateSlug } from "@/lib/slug";
 import {
@@ -160,14 +164,28 @@ export async function startLeagueAction(formData: FormData) {
     throw new Error("Need at least 2 teams marked PAID or WAIVED to start.");
   }
 
+  // v2.0: double-elim requires power-of-2 team count (no byes yet).
+  // Single-elim continues to support any count via byes.
+  if (league.format === "DOUBLE_ELIM") {
+    const lg = Math.log2(eligibleTeams.length);
+    if (lg !== Math.floor(lg) || eligibleTeams.length < 4) {
+      throw new Error(
+        `Double elimination needs a power-of-2 team count (4, 8, 16, 32). You have ${eligibleTeams.length} eligible teams. Mark teams as WAIVED or REFUNDED to reach a power of 2 — or switch the league to single elimination.`,
+      );
+    }
+  }
+
   const bracketMatches = generateBracketMatches(
     eligibleTeams.map((t) => t.id),
+    league.format,
+    { allowBracketReset: league.allowBracketReset },
   );
 
   await prisma.$transaction([
     prisma.match.createMany({
       data: bracketMatches.map((m) => ({
         leagueId: league.id,
+        bracket: m.bracket,
         round: m.round,
         bracketPosition: m.bracketPosition,
         teamAId: m.teamAId,
@@ -221,6 +239,10 @@ export async function resolveDisputeAction(formData: FormData) {
             slug: true,
             organizerId: true,
             matchFormat: true,
+            // v2.0: format/reset/team-count drive the cascade.
+            format: true,
+            allowBracketReset: true,
+            _count: { select: { teams: true } },
           },
         },
         teamA: { select: { id: true } },
@@ -278,51 +300,24 @@ export async function resolveDisputeAction(formData: FormData) {
       });
     }
 
-    const nextRound = match.round + 1;
-    const nextPosition = Math.ceil(match.bracketPosition / 2);
-
-    const nextMatch = await tx.match.findUnique({
-      where: {
-        leagueId_round_bracketPosition: {
-          leagueId: match.leagueId,
-          round: nextRound,
-          bracketPosition: nextPosition,
-        },
+    // v2.0: bracket-aware cascade replaces the inline single-elim logic.
+    await applyMatchCascade(tx, {
+      leagueId: match.leagueId,
+      leagueFormat: match.league.format,
+      allowBracketReset: match.league.allowBracketReset,
+      bracketSize: computeBracketSize(
+        match.league._count.teams,
+        match.league.format,
+      ),
+      match: {
+        id: match.id,
+        bracket: match.bracket,
+        round: match.round,
+        bracketPosition: match.bracketPosition,
+        teamAId: match.teamAId,
+        teamBId: match.teamBId,
+        winnerTeamId,
       },
-    });
-
-    if (!nextMatch) {
-      await tx.league.update({
-        where: { id: match.leagueId },
-        data: {
-          state: "COMPLETED",
-          completedAt: new Date(),
-        },
-      });
-      return match.league.slug;
-    }
-
-    const isTeamASlot = match.bracketPosition % 2 === 1;
-    const updateData: {
-      teamAId?: string;
-      teamBId?: string;
-      status?: "AWAITING_REPORT";
-    } = {};
-    if (isTeamASlot) {
-      updateData.teamAId = winnerTeamId;
-    } else {
-      updateData.teamBId = winnerTeamId;
-    }
-
-    const futureTeamA = isTeamASlot ? winnerTeamId : nextMatch.teamAId;
-    const futureTeamB = isTeamASlot ? nextMatch.teamBId : winnerTeamId;
-    if (futureTeamA && futureTeamB) {
-      updateData.status = "AWAITING_REPORT";
-    }
-
-    await tx.match.update({
-      where: { id: nextMatch.id },
-      data: updateData,
     });
 
     return match.league.slug;
@@ -378,6 +373,9 @@ export async function duplicateLeagueAction(formData: FormData) {
       finalMatchFormat: source.finalMatchFormat,
       rules: source.rules,
       mapPool: source.mapPool,
+      // v2.0: preserve tournament format + reset preference.
+      format: source.format,
+      allowBracketReset: source.allowBracketReset,
     },
     select: { slug: true },
   });
@@ -430,6 +428,11 @@ export async function updateLeagueAction(
     finalMatchFormat: String(formData.get("finalMatchFormat") ?? ""),
     rules: String(formData.get("rules") ?? ""),
     mapPool: String(formData.get("mapPool") ?? ""),
+    // v2.0: tournament format. The early-return above means we only
+    // get here in DRAFT/OPEN — fetch the form value (or fall back to
+    // the current value if the disabled select didn't submit).
+    format: String(formData.get("format") ?? league.format),
+    allowBracketReset: formData.get("allowBracketReset") ?? undefined,
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -488,6 +491,12 @@ export async function updateLeagueAction(
           : null,
       rules: parsed.data.rules ?? null,
       mapPool: parsed.data.mapPool ?? null,
+      // v2.0: tournament format + bracket-reset preference.
+      format: parsed.data.format,
+      allowBracketReset:
+        parsed.data.format === "DOUBLE_ELIM"
+          ? parsed.data.allowBracketReset
+          : false,
     },
   });
 
@@ -543,7 +552,17 @@ export async function overrideMatchAction(formData: FormData) {
     const match = await tx.match.findUnique({
       where: { id: matchId },
       include: {
-        league: { select: { id: true, slug: true, organizerId: true } },
+        league: {
+          select: {
+            id: true,
+            slug: true,
+            organizerId: true,
+            // v2.0: format determines override semantics. DE override
+            // would need to flip both winner-next AND loser-next slots,
+            // which is complex enough that v2.0-A defers it.
+            format: true,
+          },
+        },
         teamA: { select: { id: true } },
         teamB: { select: { id: true } },
       },
@@ -551,6 +570,14 @@ export async function overrideMatchAction(formData: FormData) {
     if (!match) throw new Error("Match not found.");
     if (match.league.organizerId !== user.id) {
       throw new Error("Only the organizer can override a match.");
+    }
+    // v2.0-A: override is single-elim-only for now. DE override requires
+    // updating two downstream slots (winner + loser cascades) plus
+    // unwinding any subsequent LB matches. Punted to v2.0.x.
+    if (match.league.format === "DOUBLE_ELIM") {
+      throw new Error(
+        "Match override isn't available for double-elimination leagues yet. Cancel and rerun the league if a major correction is needed.",
+      );
     }
     if (
       match.status !== "CONFIRMED" &&
@@ -572,8 +599,9 @@ export async function overrideMatchAction(formData: FormData) {
 
     const nextMatch = await tx.match.findUnique({
       where: {
-        leagueId_round_bracketPosition: {
+        leagueId_bracket_round_bracketPosition: {
           leagueId: match.leagueId,
+          bracket: "WINNERS",
           round: nextRound,
           bracketPosition: nextPosition,
         },

@@ -10,6 +10,10 @@ import {
 } from "@/lib/validators/match";
 import { createTeamSchema } from "@/lib/validators/team";
 import { deriveBracketSide, validateScore } from "@/lib/match-format";
+import {
+  applyMatchCascade,
+  computeBracketSize,
+} from "@/lib/bracket/apply-cascade";
 import { setFlashToast } from "@/lib/toast";
 
 export type MatchActionState = {
@@ -190,7 +194,15 @@ export async function confirmMatchAction(
     const match = await tx.match.findUnique({
       where: { id: matchId },
       include: {
-        league: { select: { id: true, slug: true } },
+        league: {
+          select: {
+            id: true,
+            slug: true,
+            format: true,
+            allowBracketReset: true,
+            _count: { select: { teams: true } },
+          },
+        },
         teamA: { select: { id: true, captainUserId: true } },
         teamB: { select: { id: true, captainUserId: true } },
         reports: {
@@ -237,51 +249,27 @@ export async function confirmMatchAction(
       },
     });
 
-    const nextRound = match.round + 1;
-    const nextPosition = Math.ceil(match.bracketPosition / 2);
-
-    const nextMatch = await tx.match.findUnique({
-      where: {
-        leagueId_round_bracketPosition: {
-          leagueId: match.leagueId,
-          round: nextRound,
-          bracketPosition: nextPosition,
-        },
+    // v2.0: bracket-aware cascade — handles both single- and double-
+    // elim. For DE, both winner and loser cascade to their respective
+    // next slots; the helper marks the league COMPLETED when the
+    // championship is decided.
+    await applyMatchCascade(tx, {
+      leagueId: match.leagueId,
+      leagueFormat: match.league.format,
+      allowBracketReset: match.league.allowBracketReset,
+      bracketSize: computeBracketSize(
+        match.league._count.teams,
+        match.league.format,
+      ),
+      match: {
+        id: match.id,
+        bracket: match.bracket,
+        round: match.round,
+        bracketPosition: match.bracketPosition,
+        teamAId: match.teamAId,
+        teamBId: match.teamBId,
+        winnerTeamId,
       },
-    });
-
-    if (!nextMatch) {
-      await tx.league.update({
-        where: { id: match.leagueId },
-        data: {
-          state: "COMPLETED",
-          completedAt: new Date(),
-        },
-      });
-      return match.league.slug;
-    }
-
-    const isTeamASlot = match.bracketPosition % 2 === 1;
-    const updateData: {
-      teamAId?: string;
-      teamBId?: string;
-      status?: "AWAITING_REPORT";
-    } = {};
-    if (isTeamASlot) {
-      updateData.teamAId = winnerTeamId;
-    } else {
-      updateData.teamBId = winnerTeamId;
-    }
-
-    const futureTeamA = isTeamASlot ? winnerTeamId : nextMatch.teamAId;
-    const futureTeamB = isTeamASlot ? nextMatch.teamBId : winnerTeamId;
-    if (futureTeamA && futureTeamB) {
-      updateData.status = "AWAITING_REPORT";
-    }
-
-    await tx.match.update({
-      where: { id: nextMatch.id },
-      data: updateData,
     });
 
     return match.league.slug;

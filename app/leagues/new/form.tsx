@@ -243,9 +243,12 @@ export function CreateLeagueForm({ existingSeasonNames = [] }: Props) {
           </FormField>
         </div>
 
-        {/* v1.7 + v1.9: match format + game depth (rules + map pool).
-            Game-preset chips remount this fieldset (via key) with new
-            defaults — including the optional final-match override. */}
+        {/* v1.7 + v1.9 + v2.0: match format + game depth + tournament
+            format. Game-preset chips remount this fieldset (via key) with
+            new match-format/rules/mapPool defaults. v2.0-A note: a chip
+            click resets the tournament-format selector back to single-
+            elim — acceptable since most organizers pick game first, then
+            tournament format. */}
         <MatchRulesFields
           key={presetVersion}
           defaults={{
