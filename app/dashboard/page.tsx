@@ -1,24 +1,47 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { LeagueState, PaymentStatus } from "@prisma/client";
+import type { LeagueState, MatchStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
-import { Button } from "@/components/ui/button";
-import { ActionQueue, type ActionQueueItem } from "@/components/action-queue";
-import { LeagueStateBadge } from "@/components/league-state-badge";
-import { LookingForTeamsBadge } from "@/components/looking-for-teams-badge";
-import { RegistrationStatus } from "@/components/registration-status";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { shouldShowLookingForTeams } from "@/lib/league-access";
+import { DashHero } from "@/components/dashboard/dash-hero";
+import { Pulse } from "@/components/dashboard/pulse";
+import {
+  ActionQueue,
+  type ActionItem,
+} from "@/components/dashboard/action-queue";
+import { LeagueCard } from "@/components/dashboard/league-card";
+import { SectionTitle } from "@/components/dashboard/section-title";
+import { TrophyCase, type TrophyRow } from "@/components/dashboard/trophy-case";
+import type {
+  BracketData,
+  BracketTeam,
+} from "@/components/dashboard/mini-bracket";
+import { Button } from "@/components/ui/button";
 
-const paymentLabel: Record<PaymentStatus, string> = {
-  PENDING: "Payment pending",
-  PAID: "Paid",
-  WAIVED: "Waived",
-  REFUNDED: "Refunded",
-};
+/**
+ * v3.0: Dashboard refactored to the redesign in
+ * `design_handoff_dashboard/` — DashHero + Pulse + ActionQueue +
+ * LeagueCard grid + TrophyCase.
+ *
+ * Data shape notes:
+ *   - We fetch the full team and match lists for every league we
+ *     surface so we can render embedded MiniBrackets for IN_PROGRESS
+ *     leagues. At LADDER scale (a user typically has <20 leagues
+ *     active) the join is cheap.
+ *   - Action queue entries derive a deadline from `match.updatedAt
+ *     + 48h` since we don't have per-match scheduling. Once we ship
+ *     match scheduling (v3.x), swap that to `match.scheduledAt`.
+ *   - PAY items surface every team where `paymentStatus = PENDING`
+ *     in OPEN or IN_PROGRESS leagues — they deep-link to the public
+ *     league page where the captain can view payment instructions.
+ *   - MiniBracket only renders for power-of-2 team counts (4/8/16);
+ *     other counts gracefully fall back to the registration view to
+ *     avoid the bye-rendering complexity (handled fully on the league
+ *     page itself).
+ */
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -26,10 +49,8 @@ export const metadata: Metadata = {
 };
 
 const ACTIVE_STATES = new Set<LeagueState>(["DRAFT", "OPEN", "IN_PROGRESS"]);
-
-function isActive(state: LeagueState) {
-  return ACTIVE_STATES.has(state);
-}
+const ACTION_SLA_MS = 48 * 60 * 60 * 1000;
+const POW2_RANGE = new Set([4, 8, 16]);
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -37,18 +58,29 @@ export default async function DashboardPage() {
     redirect("/signin");
   }
 
+  // ---------------------------------------------------------------
+  // Data fetching — leagues, teams, matches, actions
+  // ---------------------------------------------------------------
   const [organized, captained] = await Promise.all([
     prisma.league.findMany({
       where: { organizerId: user.id },
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { teams: true } },
+        teams: {
+          orderBy: { createdAt: "asc" },
+          select: { id: true, name: true, captainUserId: true },
+        },
         matches: {
-          orderBy: [{ round: "desc" }, { bracketPosition: "asc" }],
-          take: 1,
+          orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
           select: {
+            bracket: true,
+            round: true,
+            bracketPosition: true,
+            status: true,
             winnerTeamId: true,
-            winner: { select: { name: true } },
+            teamAId: true,
+            teamBId: true,
           },
         },
       },
@@ -60,12 +92,20 @@ export default async function DashboardPage() {
         league: {
           include: {
             _count: { select: { teams: true } },
+            teams: {
+              orderBy: { createdAt: "asc" },
+              select: { id: true, name: true, captainUserId: true },
+            },
             matches: {
-              orderBy: [{ round: "desc" }, { bracketPosition: "asc" }],
-              take: 1,
+              orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
               select: {
+                bracket: true,
+                round: true,
+                bracketPosition: true,
+                status: true,
                 winnerTeamId: true,
-                winner: { select: { name: true } },
+                teamAId: true,
+                teamBId: true,
               },
             },
           },
@@ -74,9 +114,8 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  // v1.4: surface the actual matches needing action (not just counts), so the
-  // dashboard can deep-link straight to the right modal.
-  const [awaitingReport, awaitingConfirmRaw] = await Promise.all([
+  // Match-level action data with timestamps so we can derive deadlines.
+  const [awaitingReportMatches, awaitingConfirmRaw] = await Promise.all([
     prisma.match.findMany({
       where: {
         status: "AWAITING_REPORT",
@@ -85,12 +124,17 @@ export default async function DashboardPage() {
           { teamB: { captainUserId: user.id } },
         ],
       },
-      orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
+      orderBy: [{ updatedAt: "asc" }],
       select: {
         id: true,
-        leagueId: true,
+        bracket: true,
         round: true,
         bracketPosition: true,
+        status: true,
+        winnerTeamId: true,
+        teamAId: true,
+        teamBId: true,
+        updatedAt: true,
         league: { select: { slug: true, name: true } },
         teamA: { select: { id: true, name: true, captainUserId: true } },
         teamB: { select: { id: true, name: true, captainUserId: true } },
@@ -104,168 +148,333 @@ export default async function DashboardPage() {
           { teamB: { captainUserId: user.id } },
         ],
       },
-      orderBy: [{ round: "asc" }, { bracketPosition: "asc" }],
+      orderBy: [{ updatedAt: "asc" }],
       select: {
         id: true,
-        leagueId: true,
+        bracket: true,
         round: true,
         bracketPosition: true,
+        status: true,
+        winnerTeamId: true,
+        teamAId: true,
+        teamBId: true,
+        updatedAt: true,
         league: { select: { slug: true, name: true } },
         teamA: { select: { id: true, name: true, captainUserId: true } },
         teamB: { select: { id: true, name: true, captainUserId: true } },
         reports: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { reportedByUserId: true },
+          select: { reportedByUserId: true, createdAt: true },
         },
       },
     }),
   ]);
-  // Confirm-pending only counts when the *opponent* reported.
-  const awaitingConfirm = awaitingConfirmRaw.filter(
+
+  // Confirm pending = opponent reported, not me.
+  const awaitingConfirmMatches = awaitingConfirmRaw.filter(
     (m) => m.reports[0] && m.reports[0].reportedByUserId !== user.id,
   );
 
-  // Per-league counts (kept for the secondary indicator on captained league
-  // cards below).
-  const actionsByLeague = new Map<string, number>();
-  for (const m of awaitingReport) {
-    actionsByLeague.set(m.leagueId, (actionsByLeague.get(m.leagueId) ?? 0) + 1);
-  }
-  for (const m of awaitingConfirm) {
-    actionsByLeague.set(m.leagueId, (actionsByLeague.get(m.leagueId) ?? 0) + 1);
-  }
+  // ---------------------------------------------------------------
+  // Action queue assembly
+  // ---------------------------------------------------------------
 
-  // v1.4: build a flat action queue prioritising "you need to report" first
-  // (those gate everything else) then "you need to confirm".
-  const userId = user.id;
-  function rowFromMatch(
-    m: (typeof awaitingReport)[number],
-    action: "report" | "confirm",
-  ): ActionQueueItem | null {
+  // Build a REPORT or CONFIRM action item from a match row. We accept
+  // the union of both shapes (the only difference is `reports[]` on
+  // confirm rows) and read it via duck-typing rather than a cast.
+  function matchToActionItem(
+    m: {
+      id: string;
+      round: number;
+      updatedAt: Date;
+      league: { slug: string; name: string };
+      teamA: { id: string; name: string; captainUserId: string } | null;
+      teamB: { id: string; name: string; captainUserId: string } | null;
+      reports?: { reportedByUserId: string; createdAt: Date }[];
+    },
+    kind: "REPORT" | "CONFIRM",
+  ): ActionItem | null {
     if (!m.teamA || !m.teamB) return null;
-    const youAreA = m.teamA.captainUserId === userId;
+    const youAreA = m.teamA.captainUserId === user.id;
     const yourTeam = youAreA ? m.teamA : m.teamB;
     const opp = youAreA ? m.teamB : m.teamA;
+    // Deadline: 48h SLA from updatedAt for REPORTs; 48h from the latest
+    // report's createdAt for CONFIRMs (window opens when opponent reports).
+    const deadlineSourceMs =
+      kind === "CONFIRM" && m.reports && m.reports[0]
+        ? m.reports[0].createdAt.getTime()
+        : m.updatedAt.getTime();
+    const deadline = new Date(deadlineSourceMs + ACTION_SLA_MS);
     return {
-      matchId: m.id,
+      kind,
+      id: m.id,
       leagueSlug: m.league.slug,
       leagueName: m.league.name,
-      action,
       round: m.round,
-      bracketPosition: m.bracketPosition,
       yourTeamName: yourTeam.name,
       opponentName: opp.name,
+      deadlineIso: deadline.toISOString(),
+      href: `/leagues/${m.league.slug}?match=${encodeURIComponent(m.id)}`,
     };
   }
-  const actionQueueItems: ActionQueueItem[] = [
-    ...awaitingReport
-      .map((m) => rowFromMatch(m, "report"))
-      .filter((x): x is ActionQueueItem => x !== null),
-    ...awaitingConfirm
-      .map((m) => rowFromMatch(m, "confirm"))
-      .filter((x): x is ActionQueueItem => x !== null),
+
+  const reportActions = awaitingReportMatches
+    .map((m) => matchToActionItem(m, "REPORT"))
+    .filter((x): x is ActionItem => x !== null);
+  const confirmActions = awaitingConfirmMatches
+    .map((m) => matchToActionItem(m, "CONFIRM"))
+    .filter((x): x is ActionItem => x !== null);
+
+  // PAY actions — captained teams with PENDING payment in non-completed
+  // leagues. Deadline mirrors the registrationClosesAt; falls back to
+  // 7 days from team creation if there's no closes-at.
+  const payActions: ActionItem[] = captained
+    .filter(
+      (t) =>
+        t.paymentStatus === "PENDING" && ACTIVE_STATES.has(t.league.state),
+    )
+    .map((t) => {
+      const deadline =
+        t.league.registrationClosesAt ??
+        new Date(t.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+      return {
+        kind: "PAY" as const,
+        id: `pay-${t.id}`,
+        leagueSlug: t.league.slug,
+        leagueName: t.league.name,
+        yourTeamName: t.name,
+        buyInCents: t.league.buyInCents,
+        deadlineIso: deadline.toISOString(),
+        href: `/leagues/${t.league.slug}`,
+      };
+    });
+
+  // Compose: REPORTs (most urgent) → CONFIRMs → PAY
+  const actionItems: ActionItem[] = [
+    ...reportActions,
+    ...confirmActions,
+    ...payActions,
   ];
 
+  // Per-league action counts so each LeagueCard can show "{n} pending".
+  const pendingByLeagueSlug = new Map<string, number>();
+  for (const a of actionItems) {
+    pendingByLeagueSlug.set(
+      a.leagueSlug,
+      (pendingByLeagueSlug.get(a.leagueSlug) ?? 0) + 1,
+    );
+  }
+
+  // ---------------------------------------------------------------
+  // Active vs past partition + active-league counts
+  // ---------------------------------------------------------------
+
+  const organizedActive = organized.filter((l) => ACTIVE_STATES.has(l.state));
+  const organizedPast = organized.filter((l) => !ACTIVE_STATES.has(l.state));
+  const captainedActive = captained.filter((t) =>
+    ACTIVE_STATES.has(t.league.state),
+  );
+  const captainedPast = captained.filter(
+    (t) => !ACTIVE_STATES.has(t.league.state),
+  );
+
+  const activeLeagueIds = new Set<string>();
+  for (const l of organizedActive) activeLeagueIds.add(l.id);
+  for (const t of captainedActive) activeLeagueIds.add(t.league.id);
+
+  const liveLeagueIds = new Set<string>();
+  for (const l of organizedActive) {
+    if (l.state === "IN_PROGRESS") liveLeagueIds.add(l.id);
+  }
+  for (const t of captainedActive) {
+    if (t.league.state === "IN_PROGRESS") liveLeagueIds.add(t.league.id);
+  }
+
   const hasAnything = organized.length > 0 || captained.length > 0;
+  const totalLeagueCount = activeLeagueIds.size + organizedPast.length +
+    new Set(captainedPast.map((t) => t.league.id)).size;
 
-  // v1.3: split active vs past for both organizing and playing.
-  const organizedActive = organized.filter((l) => isActive(l.state));
-  const organizedPast = organized.filter((l) => !isActive(l.state));
-  const captainedActive = captained.filter((t) => isActive(t.league.state));
-  const captainedPast = captained.filter((t) => !isActive(t.league.state));
+  // ---------------------------------------------------------------
+  // Trophy rows from past leagues (deduped across roles)
+  // ---------------------------------------------------------------
 
-  const activeIds = new Set<string>();
-  for (const l of organizedActive) activeIds.add(l.id);
-  for (const t of captainedActive) activeIds.add(t.league.id);
-  const activeCount = activeIds.size;
-
-  // v1.3: champion row = past leagues with a recorded winner, deduped by leagueId.
-  type ChampionRowEntry = {
-    leagueId: string;
-    leagueSlug: string;
-    leagueName: string;
-    leagueState: LeagueState;
-    game: string;
-    championName: string | null;
-    yourTeamName: string | null;
-    youWon: boolean;
-    role: "organizer" | "captain";
-  };
-  const championRowsMap = new Map<string, ChampionRowEntry>();
+  const trophyMap = new Map<string, TrophyRow>();
   for (const l of organizedPast) {
-    const championName = l.matches[0]?.winner?.name ?? null;
-    championRowsMap.set(l.id, {
+    const championTeam = l.teams.find((t) =>
+      l.matches.some(
+        (m) =>
+          m.winnerTeamId === t.id &&
+          (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED"),
+      ),
+    );
+    trophyMap.set(l.id, {
       leagueId: l.id,
       leagueSlug: l.slug,
       leagueName: l.name,
       leagueState: l.state,
       game: l.game,
-      championName,
+      championName: championTeam?.name ?? null,
       yourTeamName: null,
       youWon: false,
       role: "organizer",
+      completedAt: l.completedAt,
     });
   }
   for (const t of captainedPast) {
-    const championName = t.league.matches[0]?.winner?.name ?? null;
-    const winnerTeamId = t.league.matches[0]?.winnerTeamId ?? null;
-    const youWon = winnerTeamId !== null && winnerTeamId === t.id;
-    const existing = championRowsMap.get(t.league.id);
+    const championTeam = t.league.teams.find((tt) =>
+      t.league.matches.some(
+        (m) =>
+          m.winnerTeamId === tt.id &&
+          (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED"),
+      ),
+    );
+    const youWon = championTeam?.id === t.id;
+    const existing = trophyMap.get(t.league.id);
     if (existing) {
-      // Already in the map as organizer — annotate that they also captained.
+      // Promoted from organizer-only — annotate captain role too.
       existing.yourTeamName = t.name;
       existing.youWon = youWon;
     } else {
-      championRowsMap.set(t.league.id, {
+      trophyMap.set(t.league.id, {
         leagueId: t.league.id,
         leagueSlug: t.league.slug,
         leagueName: t.league.name,
         leagueState: t.league.state,
         game: t.league.game,
-        championName,
+        championName: championTeam?.name ?? null,
         yourTeamName: t.name,
         youWon,
         role: "captain",
+        completedAt: t.league.completedAt,
       });
     }
   }
-  const championRows = Array.from(championRowsMap.values());
+  const trophyRows = [...trophyMap.values()].sort((a, b) => {
+    const aT = a.completedAt?.getTime() ?? 0;
+    const bT = b.completedAt?.getTime() ?? 0;
+    return bT - aT;
+  });
 
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 md:px-12">
-        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-8">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-              Dashboard
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-              Hi, {user.displayName}
-            </h1>
-            <p className="mt-2 max-w-md text-sm text-foreground-muted">
-              Leagues you are organizing or playing in.
-            </p>
-          </div>
-          <Button asChild size="lg">
-            <Link href="/leagues/new">Create a league</Link>
-          </Button>
-        </header>
+      <main className="mx-auto w-full max-w-[1280px] flex-1 px-6 py-8 md:px-8 md:pb-24">
+        {/* DashHero — welcome line + status row + CTA. */}
+        <DashHero
+          displayName={user.displayName}
+          liveCount={liveLeagueIds.size}
+          actionCount={actionItems.length}
+          totalLeagues={totalLeagueCount}
+        />
 
-        {hasAnything && (
-          <section className="mt-8 grid grid-cols-3 gap-3">
-            <StatCard label="Organizing" value={organized.length} />
-            <StatCard label="Playing" value={captained.length} />
-            <StatCard label="Active" value={activeCount} accent />
-          </section>
-        )}
+        {hasAnything ? (
+          <>
+            {/* Pulse — three stat cards with sparklines. */}
+            <Pulse
+              organizingCount={organized.length}
+              playingCount={captained.length}
+              liveCount={liveLeagueIds.size}
+            />
 
-        {/* v1.4: top-of-dashboard action queue with deep links into matches. */}
-        <ActionQueue items={actionQueueItems} />
+            {/* On Deck — action queue. */}
+            <ActionQueue items={actionItems} />
 
-        {!hasAnything ? (
-          <section className="mt-12 rounded-lg border border-dashed border-border bg-surface/30 px-6 py-16 text-center">
+            {/* Organizing */}
+            {organizedActive.length > 0 && (
+              <section className="mt-12">
+                <SectionTitle
+                  title="Organizing"
+                  count={organizedActive.length}
+                />
+                <ul className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {organizedActive.map((league) => (
+                    <li key={league.id}>
+                      <LeagueCard
+                        href={`/leagues/${league.slug}/manage`}
+                        role="organizer"
+                        state={league.state}
+                        name={league.name}
+                        game={league.game}
+                        teamSize={league.teamSize}
+                        teams={league._count.teams}
+                        maxTeams={league.maxTeams}
+                        buyInCents={league.buyInCents}
+                        startsAt={league.startsAt}
+                        pendingActions={
+                          pendingByLeagueSlug.get(league.slug) ?? 0
+                        }
+                        bracket={buildBracketData(
+                          league.teams,
+                          league.matches,
+                          league.format,
+                          league.maxTeams,
+                          user.id,
+                        )}
+                        bracketRoundLabel={buildRoundLabel(
+                          league.matches,
+                          league.format,
+                          league.maxTeams,
+                        )}
+                        isDoubleElim={league.format === "DOUBLE_ELIM"}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Playing in */}
+            {captainedActive.length > 0 && (
+              <section className="mt-12">
+                <SectionTitle
+                  title="Playing in"
+                  count={captainedActive.length}
+                />
+                <ul className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {captainedActive.map((t) => (
+                    <li key={t.id}>
+                      <LeagueCard
+                        href={`/leagues/${t.league.slug}`}
+                        role="captain"
+                        state={t.league.state}
+                        name={t.league.name}
+                        game={t.league.game}
+                        teamSize={t.league.teamSize}
+                        teams={t.league._count.teams}
+                        maxTeams={t.league.maxTeams}
+                        buyInCents={t.league.buyInCents}
+                        startsAt={t.league.startsAt}
+                        teamName={t.name}
+                        paymentStatus={t.paymentStatus}
+                        pendingActions={
+                          pendingByLeagueSlug.get(t.league.slug) ?? 0
+                        }
+                        bracket={buildBracketData(
+                          t.league.teams,
+                          t.league.matches,
+                          t.league.format,
+                          t.league.maxTeams,
+                          user.id,
+                        )}
+                        bracketRoundLabel={buildRoundLabel(
+                          t.league.matches,
+                          t.league.format,
+                          t.league.maxTeams,
+                        )}
+                        isDoubleElim={t.league.format === "DOUBLE_ELIM"}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Trophy case */}
+            <TrophyCase rows={trophyRows} />
+          </>
+        ) : (
+          <section className="mt-12 rounded-2xl border border-dashed border-border bg-surface/30 px-6 py-16 text-center">
             <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
               Get started
             </p>
@@ -277,247 +486,15 @@ export default async function DashboardPage() {
               crew, or open an invite link from an organizer to register a
               team.
             </p>
-            <div className="mt-8 flex justify-center">
+            <div className="mt-8 flex justify-center gap-3">
               <Button asChild size="lg">
                 <Link href="/leagues/new">Create a league</Link>
               </Button>
+              <Button asChild variant="secondary" size="lg">
+                <Link href="/explore">Browse public</Link>
+              </Button>
             </div>
           </section>
-        ) : (
-          <>
-            {organizedActive.length > 0 && (
-              <section className="mt-12">
-                <SectionHeader
-                  title="Organizing"
-                  count={organizedActive.length}
-                />
-                <ul className="mt-5 grid gap-3 md:grid-cols-2">
-                  {organizedActive.map((league) => (
-                    <li key={league.id}>
-                      <Link
-                        href={`/leagues/${league.slug}/manage`}
-                        className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      >
-                        <article className="rounded-lg border border-border bg-surface p-5 transition-colors hover:border-zinc-600 hover:bg-surface-elevated">
-                          <div className="flex items-start justify-between gap-3">
-                            <LeagueStateBadge state={league.state} />
-                            <span className="font-mono text-xs text-foreground-subtle">
-                              {league.game}
-                            </span>
-                          </div>
-                          <h3 className="mt-5 text-xl font-semibold leading-tight tracking-tight">
-                            {league.name}
-                          </h3>
-                          <dl className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-foreground-muted">
-                            <Stat
-                              label="Entry"
-                              value={`$${(league.buyInCents / 100).toFixed(2)}`}
-                            />
-                            <Stat
-                              label="Teams"
-                              value={`${league._count.teams} / ${league.maxTeams}`}
-                            />
-                          </dl>
-                          {/* v1.6: scheduling info on the card. */}
-                          <ScheduleLines
-                            startsAt={league.startsAt}
-                            registrationClosesAt={league.registrationClosesAt}
-                            showLft={shouldShowLookingForTeams({
-                              lookingForTeams: league.lookingForTeams,
-                              state: league.state,
-                              teamCount: league._count.teams,
-                              maxTeams: league.maxTeams,
-                              registrationClosesAt:
-                                league.registrationClosesAt,
-                            })}
-                            spotsRemaining={Math.max(
-                              0,
-                              league.maxTeams - league._count.teams,
-                            )}
-                          />
-                        </article>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {captainedActive.length > 0 && (
-              <section className="mt-10">
-                <SectionHeader
-                  title="Playing in"
-                  count={captainedActive.length}
-                />
-                <ul className="mt-5 grid gap-3 md:grid-cols-2">
-                  {captainedActive.map((team) => {
-                    const actionCount =
-                      actionsByLeague.get(team.league.id) ?? 0;
-                    return (
-                      <li key={team.id}>
-                        <Link
-                          href={`/leagues/${team.league.slug}`}
-                          className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                          <article className="rounded-lg border border-border bg-surface p-5 transition-colors hover:border-zinc-600 hover:bg-surface-elevated">
-                            <div className="flex items-start justify-between gap-3">
-                              <LeagueStateBadge state={team.league.state} />
-                              {actionCount > 0 ? (
-                                <span className="font-mono text-xs uppercase tracking-wider text-warning">
-                                  {actionCount} action
-                                  {actionCount === 1 ? "" : "s"} needed
-                                </span>
-                              ) : (
-                                <span className="font-mono text-xs text-foreground-subtle">
-                                  {paymentLabel[team.paymentStatus]}
-                                </span>
-                              )}
-                            </div>
-                            <h3 className="mt-5 text-xl font-semibold leading-tight tracking-tight">
-                              {team.league.name}
-                            </h3>
-                            <p className="mt-1 text-xs text-foreground-muted">
-                              Captain of{" "}
-                              <span className="text-foreground">{team.name}</span>
-                            </p>
-                            <dl className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-foreground-muted">
-                              <Stat
-                                label="Entry"
-                                value={`$${(team.league.buyInCents / 100).toFixed(2)}`}
-                              />
-                              <Stat
-                                label="Status"
-                                value={paymentLabel[team.paymentStatus]}
-                              />
-                              <Stat
-                                label="Teams"
-                                value={`${team.league._count.teams} / ${team.league.maxTeams}`}
-                              />
-                            </dl>
-                            {/* v1.6: scheduling info — captain's view. */}
-                            <ScheduleLines
-                              startsAt={team.league.startsAt}
-                              registrationClosesAt={
-                                team.league.registrationClosesAt
-                              }
-                              showLft={shouldShowLookingForTeams({
-                                lookingForTeams: team.league.lookingForTeams,
-                                state: team.league.state,
-                                teamCount: team.league._count.teams,
-                                maxTeams: team.league.maxTeams,
-                                registrationClosesAt:
-                                  team.league.registrationClosesAt,
-                              })}
-                              spotsRemaining={Math.max(
-                                0,
-                                team.league.maxTeams -
-                                  team.league._count.teams,
-                              )}
-                            />
-                          </article>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-
-            {organizedActive.length === 0 &&
-              captainedActive.length === 0 &&
-              championRows.length > 0 && (
-                <section className="mt-12 rounded-lg border border-dashed border-border bg-surface/30 px-6 py-12 text-center">
-                  <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-                    Nothing active right now
-                  </p>
-                  <h2 className="mt-3 text-xl font-semibold tracking-tight">
-                    Run it back?
-                  </h2>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-foreground-muted">
-                    Spin up a fresh league to play with the same crew, or jump
-                    in via an invite link.
-                  </p>
-                  <div className="mt-6 flex justify-center">
-                    <Button asChild>
-                      <Link href="/leagues/new">Create a league</Link>
-                    </Button>
-                  </div>
-                </section>
-              )}
-
-            {championRows.length > 0 && (
-              <section className="mt-12">
-                <SectionHeader
-                  title="Past leagues"
-                  count={championRows.length}
-                />
-                <ul className="mt-5 flex flex-col gap-3">
-                  {championRows.map((row) => {
-                    const linkHref =
-                      row.role === "organizer"
-                        ? `/leagues/${row.leagueSlug}/manage`
-                        : `/leagues/${row.leagueSlug}`;
-                    return (
-                      <li key={row.leagueId}>
-                        <Link
-                          href={linkHref}
-                          className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                          <article className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-surface px-5 py-4 transition-colors hover:border-zinc-600 hover:bg-surface-elevated">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <LeagueStateBadge state={row.leagueState} />
-                                <span className="font-mono text-xs text-foreground-subtle">
-                                  {row.game}
-                                </span>
-                              </div>
-                              <h3 className="mt-3 truncate text-base font-semibold tracking-tight">
-                                {row.leagueName}
-                              </h3>
-                            </div>
-                            <div className="min-w-0 text-right">
-                              {row.leagueState === "COMPLETED" &&
-                              row.championName ? (
-                                <>
-                                  <p
-                                    className="font-mono text-[11px] uppercase text-foreground-subtle"
-                                    style={{ letterSpacing: "0.16em" }}
-                                  >
-                                    Champion
-                                  </p>
-                                  <p
-                                    className={`mt-1 truncate text-sm font-semibold ${row.youWon ? "text-success" : "text-foreground"}`}
-                                  >
-                                    {row.championName}
-                                    {row.youWon && (
-                                      <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-success">
-                                        you
-                                      </span>
-                                    )}
-                                  </p>
-                                  {row.yourTeamName && !row.youWon && (
-                                    <p className="mt-0.5 truncate text-xs text-foreground-subtle">
-                                      Your team: {row.yourTeamName}
-                                    </p>
-                                  )}
-                                </>
-                              ) : (
-                                <p className="font-mono text-xs text-foreground-subtle">
-                                  {row.leagueState === "CANCELLED"
-                                    ? "Cancelled"
-                                    : "No champion"}
-                                </p>
-                              )}
-                            </div>
-                          </article>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-          </>
         )}
       </main>
       <SiteFooter />
@@ -525,86 +502,119 @@ export default async function DashboardPage() {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent?: boolean;
-}) {
-  const accentColor = accent && value > 0 ? "text-primary" : "text-foreground";
-  return (
-    <div className="rounded-lg border border-border bg-surface p-5">
-      <p className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-        {label}
-      </p>
-      <p
-        className={`mt-3 font-mono text-3xl font-semibold tracking-tight ${accentColor}`}
-      >
-        {value}
-      </p>
-    </div>
+// ---------------------------------------------------------------
+// Helpers — bracket data assembly
+// ---------------------------------------------------------------
+
+type DashLeagueMatch = {
+  bracket: "WINNERS" | "LOSERS" | "GRAND_FINAL" | "GRAND_RESET";
+  round: number;
+  bracketPosition: number;
+  status: MatchStatus;
+  winnerTeamId: string | null;
+  teamAId: string | null;
+  teamBId: string | null;
+};
+
+type DashLeagueTeam = {
+  id: string;
+  name: string;
+  captainUserId: string;
+};
+
+/**
+ * Build BracketData for the LeagueCard's MiniBracket. Returns null if
+ * the team count isn't a supported power of 2 (4/8/16) or if the
+ * league hasn't actually started yet — caller falls back to the
+ * registration progress region.
+ *
+ * Aliveness is computed by counting losses against each team:
+ *   - SINGLE_ELIM: alive if 0 confirmed losses
+ *   - DOUBLE_ELIM: alive if < 2 confirmed losses (SE rules in WB,
+ *                  +1 in LB before elimination)
+ */
+function buildBracketData(
+  teams: DashLeagueTeam[],
+  matches: DashLeagueMatch[],
+  format: "SINGLE_ELIM" | "DOUBLE_ELIM",
+  maxTeams: number,
+  viewerUserId: string,
+): BracketData | null {
+  if (!POW2_RANGE.has(maxTeams)) return null;
+  if (teams.length === 0) return null;
+
+  const decided = matches.filter(
+    (m) =>
+      m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED",
   );
+  if (decided.length === 0 && teams.length < maxTeams) {
+    // Not started yet — show registration view instead.
+    return null;
+  }
+
+  const lossesByTeam = new Map<string, number>();
+  for (const m of decided) {
+    if (!m.winnerTeamId) continue;
+    const loserId =
+      m.teamAId === m.winnerTeamId ? m.teamBId : m.teamAId;
+    if (!loserId) continue;
+    lossesByTeam.set(loserId, (lossesByTeam.get(loserId) ?? 0) + 1);
+  }
+  const eliminatedThreshold = format === "DOUBLE_ELIM" ? 2 : 1;
+
+  // Pad team list to maxTeams with synthetic "TBD" placeholders so the
+  // bracket pyramids correctly. (Wouldn't happen in practice — startLeague
+  // requires a power-of-2 team count for DE, and SE byes are rare.)
+  const padded: BracketTeam[] = teams.slice(0, maxTeams).map((t) => ({
+    id: t.id,
+    name: t.name,
+    isYou: t.captainUserId === viewerUserId,
+    alive: (lossesByTeam.get(t.id) ?? 0) < eliminatedThreshold,
+  }));
+  while (padded.length < maxTeams) {
+    padded.push({
+      id: `bye-${padded.length}`,
+      name: "Bye",
+      isYou: false,
+      alive: false,
+    });
+  }
+
+  const totalRounds = Math.log2(maxTeams);
+  // currentRound = highest WINNERS round that has at least one decided match.
+  // (SE: the only bracket; DE: still the WB.)
+  const wbDecided = decided.filter((m) => m.bracket === "WINNERS");
+  const currentRound =
+    wbDecided.length === 0
+      ? 1
+      : Math.min(
+          totalRounds,
+          Math.max(...wbDecided.map((m) => m.round)) + 1,
+        );
+
+  return {
+    totalRounds,
+    currentRound,
+    teams: padded,
+  };
 }
 
-function SectionHeader({ title, count }: { title: string; count: number }) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <h2 className="font-mono text-xs uppercase tracking-widest text-foreground-subtle">
-        {title}
-      </h2>
-      <span className="font-mono text-xs text-foreground-subtle">
-        ({count})
-      </span>
-    </div>
+function buildRoundLabel(
+  matches: DashLeagueMatch[],
+  format: "SINGLE_ELIM" | "DOUBLE_ELIM",
+  maxTeams: number,
+): string | null {
+  if (!POW2_RANGE.has(maxTeams)) return null;
+  const totalRounds = Math.log2(maxTeams);
+  const decided = matches.filter(
+    (m) =>
+      (m.status === "CONFIRMED" || m.status === "ORGANIZER_DECIDED") &&
+      m.bracket === "WINNERS",
   );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <dt className="text-foreground-subtle">{label}</dt>
-      <dd className="font-mono text-foreground">{value}</dd>
-    </div>
-  );
-}
-
-// v1.6: tiny helper component that surfaces scheduling info on dashboard
-// cards. Renders nothing when none of the fields apply, so the card
-// layout stays unchanged for legacy leagues.
-function ScheduleLines({
-  startsAt,
-  registrationClosesAt,
-  showLft,
-  spotsRemaining,
-}: {
-  startsAt: Date | null;
-  registrationClosesAt: Date | null;
-  showLft: boolean;
-  spotsRemaining: number;
-}) {
-  const hasAnything = !!startsAt || !!registrationClosesAt || showLft;
-  if (!hasAnything) return null;
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-3">
-      {startsAt && (
-        <span className="font-mono text-[11px] text-foreground-muted">
-          Starts{" "}
-          {startsAt.toLocaleString("en-US", {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}
-        </span>
-      )}
-      {registrationClosesAt && (
-        <RegistrationStatus closesAt={registrationClosesAt} compact />
-      )}
-      {showLft && <LookingForTeamsBadge spotsRemaining={spotsRemaining} />}
-    </div>
-  );
+  const currentRound =
+    decided.length === 0
+      ? 1
+      : Math.min(totalRounds, Math.max(...decided.map((m) => m.round)) + 1);
+  const formatTag = format === "DOUBLE_ELIM" ? "WB" : "Bracket";
+  return `${formatTag} · Round ${currentRound} of ${totalRounds}`;
 }

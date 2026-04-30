@@ -9,7 +9,7 @@ export async function SiteHeader() {
   const user = session?.user;
 
   return (
-    <nav className="flex items-center justify-between border-b border-border px-6 py-4 md:px-12">
+    <nav className="sticky top-0 z-40 flex items-center justify-between border-b border-border bg-background/80 px-6 py-4 backdrop-blur-md md:px-8">
       <Link
         href={user ? "/dashboard" : "/"}
         className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -18,15 +18,22 @@ export async function SiteHeader() {
       </Link>
 
       {user ? (
-        <div className="flex items-center gap-2 md:gap-3">
+        <div className="flex items-center gap-1 md:gap-2">
+          {/* v3.0: Dashboard text link — second nav slot before Explore. */}
+          <Link
+            href="/dashboard"
+            className="hidden rounded-md px-3 py-1.5 text-[13px] text-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:inline-block"
+          >
+            Dashboard
+          </Link>
           {/* v2.0-E: Explore — public discovery of OPEN_JOIN leagues. */}
           <Link
             href="/explore"
-            className="hidden rounded-md px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:inline-block"
+            className="hidden rounded-md px-3 py-1.5 text-[13px] text-foreground-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:inline-block"
           >
             Explore
           </Link>
-          <Button asChild variant="secondary" size="sm">
+          <Button asChild variant="secondary" size="sm" className="ml-1">
             <Link href="/leagues/new">Create a league</Link>
           </Button>
           <Link

@@ -1,17 +1,33 @@
 @import "tailwindcss";
 
 :root {
+  /* v3.0: dashboard redesign introduces a slightly cooler page bg
+     (--bg) layered over the existing --background as the deepest
+     surface. Existing pages still use --background so the rest of
+     the app is unaffected. */
+  --bg: #0a0a0c;
   --background: #09090b;
   --surface: #18181b;
+  /* v3.0: nested-surface tone between --surface and --surface-elevated
+     for inset rows on the dashboard (mini-bracket bg, slot fills). */
+  --surface-2: #1f1f23;
   --surface-elevated: #27272a;
-  --border: #3f3f46;
+  /* v3.0: tighter card border for dashboard surfaces; the original
+     --border (used everywhere else) becomes --border-strong here. */
+  --border: #2a2a2e;
+  --border-strong: #3f3f46;
 
   --foreground: #fafafa;
   --foreground-muted: #a1a1aa;
   --foreground-subtle: #71717a;
 
-  --primary: #8b5cf6;
-  --primary-foreground: #fafafa;
+  /* v3.0: lavender primary for dark surfaces; --primary-deep keeps the
+     deeper violet for emphasis (button hover, gradient ends).
+     --primary-soft is the hairline accent on lavender pills. */
+  --primary: #a78bfa;
+  --primary-deep: #8b5cf6;
+  --primary-soft: #c4b5fd;
+  --primary-foreground: #09090b;
   --success: #22c55e;
   --success-foreground: #09090b;
   --destructive: #ef4444;
@@ -23,16 +39,21 @@
 }
 
 @theme inline {
+  --color-bg: var(--bg);
   --color-background: var(--background);
   --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-surface-elevated: var(--surface-elevated);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
 
   --color-foreground: var(--foreground);
   --color-foreground-muted: var(--foreground-muted);
   --color-foreground-subtle: var(--foreground-subtle);
 
   --color-primary: var(--primary);
+  --color-primary-deep: var(--primary-deep);
+  --color-primary-soft: var(--primary-soft);
   --color-primary-foreground: var(--primary-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
@@ -55,4 +76,23 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* v3.0: pulsing dot used by the dashboard hero "live now" indicator
+   and the IN_PROGRESS state pill. Calm cadence (1.6s) so a row of
+   pulses doesn't feel jittery. */
+@keyframes ladderPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.3);
+  }
+}
+
+.ladder-pulse {
+  animation: ladderPulse 1.8s ease-in-out infinite;
 }
