@@ -16,28 +16,34 @@ import { cn } from "@/lib/cn";
  * first row (priority). CONFIRM and PAY are quieter.
  */
 
-export type ActionItem =
-  | {
-      kind: "REPORT" | "CONFIRM";
-      id: string;
-      leagueSlug: string;
-      leagueName: string;
-      round: number;
-      yourTeamName: string;
-      opponentName: string;
-      deadlineIso: string;
-      href: string;
-    }
-  | {
-      kind: "PAY";
-      id: string;
-      leagueSlug: string;
-      leagueName: string;
-      yourTeamName: string;
-      buyInCents: number;
-      deadlineIso: string;
-      href: string;
-    };
+// Each kind is its own variant — gives TS clean discriminator
+// narrowing inside the card body so we can read PAY-only fields
+// (`buyInCents`) and match-only fields (`round`, `opponentName`)
+// without casts.
+type MatchAction = {
+  kind: "REPORT" | "CONFIRM";
+  id: string;
+  leagueSlug: string;
+  leagueName: string;
+  round: number;
+  yourTeamName: string;
+  opponentName: string;
+  deadlineIso: string;
+  href: string;
+};
+
+type PayAction = {
+  kind: "PAY";
+  id: string;
+  leagueSlug: string;
+  leagueName: string;
+  yourTeamName: string;
+  buyInCents: number;
+  deadlineIso: string;
+  href: string;
+};
+
+export type ActionItem = MatchAction | PayAction;
 
 export function ActionQueue({ items }: { items: ActionItem[] }) {
   if (items.length === 0) {
@@ -95,12 +101,15 @@ function ActionCard({
         ? "Confirm Score"
         : "Payment due";
 
+  // Switch narrows `item` to the matching variant — necessary so
+  // TypeScript lets us read PAY-only fields (`buyInCents`) inside the
+  // PAY case without a cast.
   const buttonLabel =
-    item.kind === "REPORT"
-      ? "Report"
-      : item.kind === "CONFIRM"
-        ? "Review"
-        : `Pay $${(item.buyInCents / 100).toFixed(0)}`;
+    item.kind === "PAY"
+      ? `Pay $${(item.buyInCents / 100).toFixed(0)}`
+      : item.kind === "REPORT"
+        ? "Report"
+        : "Review";
 
   return (
     <Link

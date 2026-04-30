@@ -123,7 +123,7 @@ export function LeagueCard({
             <InProgressSummary
               teams={teams}
               maxTeams={maxTeams}
-              roundLabel={bracketRoundLabel}
+              roundLabel={bracketRoundLabel ?? null}
             />
           ) : (
             <RegistrationRegion

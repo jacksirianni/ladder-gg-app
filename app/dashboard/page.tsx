@@ -180,6 +180,11 @@ export default async function DashboardPage() {
   // Action queue assembly
   // ---------------------------------------------------------------
 
+  // Capture into a const so the closures below don't need to re-prove
+  // the `if (!user) redirect()` narrowing — TS loses that across
+  // function-declaration boundaries.
+  const userId = user.id;
+
   // Build a REPORT or CONFIRM action item from a match row. We accept
   // the union of both shapes (the only difference is `reports[]` on
   // confirm rows) and read it via duck-typing rather than a cast.
@@ -196,7 +201,7 @@ export default async function DashboardPage() {
     kind: "REPORT" | "CONFIRM",
   ): ActionItem | null {
     if (!m.teamA || !m.teamB) return null;
-    const youAreA = m.teamA.captainUserId === user.id;
+    const youAreA = m.teamA.captainUserId === userId;
     const yourTeam = youAreA ? m.teamA : m.teamB;
     const opp = youAreA ? m.teamB : m.teamA;
     // Deadline: 48h SLA from updatedAt for REPORTs; 48h from the latest
@@ -409,7 +414,7 @@ export default async function DashboardPage() {
                           league.matches,
                           league.format,
                           league.maxTeams,
-                          user.id,
+                          userId,
                         )}
                         bracketRoundLabel={buildRoundLabel(
                           league.matches,
@@ -455,7 +460,7 @@ export default async function DashboardPage() {
                           t.league.matches,
                           t.league.format,
                           t.league.maxTeams,
-                          user.id,
+                          userId,
                         )}
                         bracketRoundLabel={buildRoundLabel(
                           t.league.matches,
